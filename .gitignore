@@ -1,0 +1,19 @@
+# Dependencies
+**/node_modules
+
+# Firebase build output
+out
+*.log
+**/*.cache
+
+# Environment Variables
+.env.local
+*credentials.json
+*creds.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.vscode
