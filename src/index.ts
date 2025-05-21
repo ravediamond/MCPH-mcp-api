@@ -241,8 +241,8 @@ function getServer() {
 }
 
 // Stateless MCP endpoint (modern Streamable HTTP, stateless)
-app.post("/mcp", apiKeyAuthMiddleware, async (req, res) => {
-    console.log(`[${new Date().toISOString()}] Incoming POST /mcp from ${req.ip || req.socket.remoteAddress}`);
+app.post("/", apiKeyAuthMiddleware, async (req, res) => {
+    console.log(`[${new Date().toISOString()}] Incoming POST / from ${req.ip || req.socket.remoteAddress}`);
     console.log("Request body:", JSON.stringify(req.body));
     try {
         const server = getServer();
@@ -270,8 +270,8 @@ app.post("/mcp", apiKeyAuthMiddleware, async (req, res) => {
     }
 });
 
-// Optionally, reject GET/DELETE on /mcp for clarity
-app.get("/mcp", (req, res) => {
+// Optionally, reject GET/DELETE on / for clarity
+app.get("/", (req, res) => {
     res.status(405).json({
         jsonrpc: "2.0",
         error: {
@@ -281,7 +281,7 @@ app.get("/mcp", (req, res) => {
         id: null
     });
 });
-app.delete("/mcp", (req, res) => {
+app.delete("/", (req, res) => {
     res.status(405).json({
         jsonrpc: "2.0",
         error: {
@@ -294,5 +294,5 @@ app.delete("/mcp", (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`MCPH listening on http://localhost:${PORT}/mcp`);
+    console.log(`MCPH listening on http://localhost:${PORT}/`);
 });
