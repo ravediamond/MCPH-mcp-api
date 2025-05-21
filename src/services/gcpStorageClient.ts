@@ -1,4 +1,8 @@
 import { Storage, StorageOptions } from "@google-cloud/storage";
+import * as dotenv from "dotenv";
+
+// Load environment variables at the beginning
+dotenv.config({ path: ".env.local" });
 
 // Initialize Google Cloud Storage client
 let storage: Storage;

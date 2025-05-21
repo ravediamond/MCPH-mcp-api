@@ -281,5 +281,5 @@ app.delete("/mcp", (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`Dummy MCP server listening on http://localhost:${PORT}/mcp`);
+    console.log(`MCPH listening on http://localhost:${PORT}/mcp`);
 });
