@@ -14,7 +14,7 @@ try {
     storageOptions.projectId = projectIdFromEnv;
     console.log(`Using GCP_PROJECT_ID from env: ${projectIdFromEnv}`);
   }
-  // The SDK will use GOOGLE_APPLICATION_CREDENTIALS if set, otherwise ADC (Cloud Run, gcloud, etc)
+  // The SDK will use Application Default Credentials (ADC) (Cloud Run, gcloud, etc)
   storage = new Storage(storageOptions);
   console.log(
     `Initialized Google Cloud Storage client. Project ID: ${storage.projectId || "inferred"}.`

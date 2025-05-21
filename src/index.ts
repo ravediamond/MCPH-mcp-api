@@ -27,7 +27,7 @@ const app = express();
 app.use(express.json());
 
 // Add CORS headers for API endpoints
-app.use(function(req: express.Request, res: express.Response, next: express.NextFunction): void {
+app.use(function (req: express.Request, res: express.Response, next: express.NextFunction): void {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-authorization");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -66,12 +66,13 @@ const SearchParams = z.object({
 // Helper to create a new MCP server instance with real tools
 function getServer() {
     const server = new McpServer({
-        name: "MCPH MCP Server",
+        name: "MCPH-mcp-server",
+        description: "MCPH server for handling artifacts and tools.",
         version: "1.0.0"
     });
 
     // artifacts/list
-    server.tool("artifacts/list", {}, async () => {
+    server.tool("artifacts_list", {}, async () => {
         const snapshot = await db.collection(FILES_COLLECTION).orderBy("uploadedAt", "desc").limit(100).get();
         const artifacts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return {
@@ -83,7 +84,7 @@ function getServer() {
     });
 
     // artifacts/get
-    server.tool("artifacts/get", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
+    server.tool("artifacts_get", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
         const meta = await getFileMetadata(id);
         if (!meta) {
             throw new Error("Artifact not found");
@@ -112,7 +113,7 @@ function getServer() {
     });
 
     // artifacts/get_metadata
-    server.tool("artifacts/get_metadata", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
+    server.tool("artifacts_get_metadata", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
         const meta = await getFileMetadata(id);
         if (!meta) {
             throw new Error("Artifact not found");
@@ -129,7 +130,7 @@ function getServer() {
     });
 
     // artifacts/search
-    server.tool("artifacts/search", SearchParams.shape, async ({ query }) => {
+    server.tool("artifacts_search", SearchParams.shape, async ({ query }) => {
         const embedding = await getEmbedding(query);
         let topK = 5;
         const filesRef = db.collection(FILES_COLLECTION);
@@ -162,7 +163,7 @@ function getServer() {
     });
 
     // artifacts/upload
-    server.tool("artifacts/upload", UploadArtifactParams.shape, async (args, extra) => {
+    server.tool("artifacts_upload", UploadArtifactParams.shape, async (args, extra) => {
         const { fileName, contentType, data, ttlDays, title, description, fileType, metadata } = args;
         if (contentType.startsWith("application/") || contentType === "binary/octet-stream") {
             // Binary: return presigned upload URL
@@ -215,7 +216,7 @@ function getServer() {
     });
 
     // artifacts/share
-    server.tool("artifacts/share", ShareArtifactParams.shape, async (args, extra) => {
+    server.tool("artifacts_share", ShareArtifactParams.shape, async (args, extra) => {
         const { id, isShared, password } = args;
         const fileRef = db.collection(FILES_COLLECTION).doc(id);
         const update = {} as any;

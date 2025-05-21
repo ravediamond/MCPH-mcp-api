@@ -2,32 +2,6 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-// Utility to handle service account credentials for Vercel
-function setupServiceAccountForVercel() {
-  if (process.env.VERCEL_ENV) {
-    const jsonContent =
-      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-      process.env.FIREBASE_ADMIN_SDK_SERVICE_ACCOUNT_PATH;
-    if (jsonContent && jsonContent.trim().startsWith("{")) {
-      const tmpPath = path.join(os.tmpdir(), "service-account.json");
-      let shouldWrite = true;
-      if (fs.existsSync(tmpPath)) {
-        const existing = fs.readFileSync(tmpPath, "utf8");
-        if (existing === jsonContent) {
-          shouldWrite = false;
-        }
-      }
-      if (shouldWrite) {
-        fs.writeFileSync(tmpPath, jsonContent, { encoding: "utf8" });
-      }
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
-      process.env.FIREBASE_ADMIN_SDK_SERVICE_ACCOUNT_PATH = tmpPath;
-    }
-  }
-}
-
-setupServiceAccountForVercel();
-
 import {
   initializeApp,
   getApps,
@@ -70,19 +44,6 @@ import { v4 as uuidv4 } from "uuid";
 if (!getApps().length) {
   try {
     console.log(
-      "Attempting to initialize Firebase Admin SDK using Application Default Credentials (ADC).",
-    );
-    console.log(
-      "This will use GOOGLE_APPLICATION_CREDENTIALS environment variable if set, or other ADC mechanisms.",
-    );
-
-    // Initialize Firebase Admin SDK without explicit credentials.
-    // It will automatically use Application Default Credentials (ADC).
-    firebaseApp = initializeApp({
-      // No 'credential' property is provided, so ADC will be used.
-    });
-
-    console.log(
       "Firebase Admin SDK initialized successfully using Application Default Credentials.",
     );
   } catch (error: any) {
@@ -95,13 +56,8 @@ if (!getApps().length) {
     if (
       error.message.includes("Could not load the default credentials") ||
       error.message.includes("Unable to detect a Project Id") ||
-      error.message.includes("getDefaultCredential") ||
-      error.message.includes(
-        "Error getting access token from GOOGLE_APPLICATION_CREDENTIALS",
-      )
+      error.message.includes("getDefaultCredential")
     ) {
-      detailedError +=
-        "Please ensure the GOOGLE_APPLICATION_CREDENTIALS environment variable is correctly set to the path of a valid service account JSON file. ";
       detailedError +=
         "The service account must have the necessary Firebase permissions (e.g., Firestore Admin). ";
       detailedError +=
