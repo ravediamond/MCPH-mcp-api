@@ -150,21 +150,30 @@ function getServer() {
     });
 
     // artifacts/upload
-    server.tool("artifacts/upload", UploadArtifactParams.shape, async (input) => {
-        const { fileName, contentType, data, ttlDays, title, description, fileType, metadata } = input;
+    server.tool("artifacts/upload", UploadArtifactParams.shape, async (args, extra) => {
+        const { fileName, contentType, data, ttlDays, title, description, fileType, metadata } = args;
         if (contentType.startsWith("application/") || contentType === "binary/octet-stream") {
             // Binary: return presigned upload URL
             const { url, fileId, gcsPath } = await generateUploadUrl(fileName, contentType, ttlDays);
             return {
+                structuredContent: {},
+                content: [
+                    { type: "text", text: `Upload your file using this URL with a PUT request: ${url}` }
+                ],
                 uploadUrl: url,
                 fileId,
-                gcsPath,
-                message: "Upload your file using this URL with a PUT request."
+                gcsPath
             };
         } else {
             // Text: upload directly
             if (!data) {
-                throw new Error("Missing data for text upload");
+                return {
+                    structuredContent: {},
+                    content: [
+                        { type: "text", text: "Missing data for text upload" }
+                    ],
+                    isError: true
+                };
             }
             const buffer = Buffer.from(data, "base64");
             // --- EMBEDDING GENERATION ---
@@ -184,15 +193,18 @@ function getServer() {
                 await db.collection(FILES_COLLECTION).doc(fileMeta.id).update({ embedding });
             }
             return {
-                artifact: fileMeta,
-                message: "Text artifact uploaded successfully."
+                structuredContent: {},
+                content: [
+                    { type: "text", text: "Text artifact uploaded successfully." }
+                ],
+                artifact: fileMeta
             };
         }
     });
 
     // artifacts/share
-    server.tool("artifacts/share", ShareArtifactParams, async ({ input }) => {
-        const { id, isShared, password } = input;
+    server.tool("artifacts/share", ShareArtifactParams.shape, async (args, extra) => {
+        const { id, isShared, password } = args;
         const fileRef = db.collection(FILES_COLLECTION).doc(id);
         const update = {} as any;
         if (typeof isShared === "boolean") update.isShared = isShared;
@@ -201,11 +213,14 @@ function getServer() {
         // Return the shareable link and status
         const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/artifact/${id}`;
         return {
+            structuredContent: {},
+            content: [
+                { type: "text", text: `Artifact ${id} is now ${update.isShared ? "shared" : "private"}. Shareable link: ${shareUrl}` }
+            ],
             id,
             isShared: update.isShared,
             password: !!update.password,
-            shareUrl,
-            message: `Artifact ${id} is now ${update.isShared ? "shared" : "private"}. Shareable link: ${shareUrl}`
+            shareUrl
         };
     });
 
