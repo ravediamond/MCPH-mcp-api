@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
-import { requireApiKeyAuth } from "./lib/apiKeyAuth.ts";
+import { requireApiKeyAuth, apiKeyAuthMiddleware } from "./lib/apiKeyAuth.ts";
 import { getFileMetadata, FILES_COLLECTION, incrementUserToolUsage, db } from "./services/firebaseService.ts";
 import { getSignedDownloadUrl, getFileContent, generateUploadUrl, uploadFile } from "./services/storageService.ts";
 import { getEmbedding } from "./lib/vertexAiEmbedding.ts";
@@ -25,6 +25,18 @@ dotenv.config({ path: ".env.local" });
 
 const app = express();
 app.use(express.json());
+
+// Add CORS headers for API endpoints
+app.use(function(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-authorization");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    if (req.method === "OPTIONS") {
+        res.status(200).end();
+        return;
+    }
+    next();
+});
 
 // Zod schemas for tool arguments
 const ListArtifactsParams = z.object({});
@@ -228,7 +240,7 @@ function getServer() {
 }
 
 // Stateless MCP endpoint (modern Streamable HTTP, stateless)
-app.post("/mcp", async (req, res) => {
+app.post("/mcp", apiKeyAuthMiddleware, async (req, res) => {
     console.log(`[${new Date().toISOString()}] Incoming POST /mcp from ${req.ip || req.socket.remoteAddress}`);
     console.log("Request body:", JSON.stringify(req.body));
     try {
