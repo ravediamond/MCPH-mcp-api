@@ -4,6 +4,21 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
+import { requireApiKeyAuth } from "./lib/apiKeyAuth";
+import { getFileMetadata, FILES_COLLECTION, incrementUserToolUsage, db } from "./services/firebaseService";
+import { getSignedDownloadUrl, getFileContent, generateUploadUrl, uploadFile } from "./services/storageService";
+import { getEmbedding } from "./lib/vertexAiEmbedding";
+import util from "util";
+
+// Global error handlers for better diagnostics
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("Unhandled Rejection at:", promise, "reason:", reason instanceof Error ? reason.stack || reason.message : util.inspect(reason, { depth: null }));
+    process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+    console.error("Uncaught Exception:", err instanceof Error ? err.stack || err.message : util.inspect(err, { depth: null }));
+    process.exit(1);
+});
 
 // Load environment variables
 dotenv.config({ path: ".env.local" });
@@ -11,23 +26,188 @@ dotenv.config({ path: ".env.local" });
 const app = express();
 app.use(express.json());
 
-// Helper to create a new MCP server instance with a dummy tool
+// Zod schemas for tool arguments
+const ListArtifactsParams = z.object({});
+const GetArtifactParams = z.object({
+    id: z.string(),
+    expiresInSeconds: z.number().int().min(1).max(86400).optional(),
+});
+const UploadArtifactParams = z.object({
+    fileName: z.string(),
+    contentType: z.string(),
+    data: z.string().optional(), // base64-encoded if present
+    ttlDays: z.number().int().min(1).max(365).optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    fileType: z.string().optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+});
+const ShareArtifactParams = z.object({
+    id: z.string(),
+    isShared: z.boolean().optional(),
+    password: z.string().optional(),
+});
+const SearchParams = z.object({
+    query: z.string(),
+});
+
+// Helper to create a new MCP server instance with real tools
 function getServer() {
     const server = new McpServer({
-        name: "Dummy MCP Server",
+        name: "MCPH MCP Server",
         version: "1.0.0"
     });
 
-    // Dummy tool: returns a static message
-    server.tool(
-        "dummy-tool",
-        { input: z.string().optional() },
-        async ({ input }) => ({
+    // artifacts/list
+    server.tool("artifacts/list", {}, async () => {
+        const snapshot = await db.collection(FILES_COLLECTION).orderBy("uploadedAt", "desc").limit(100).get();
+        const artifacts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        return {
+            artifacts,
             content: [
-                { type: "text", text: `Hello from dummy-tool! Input was: ${input ?? "<none>"}` }
+                { type: "text", text: `IDs: ${artifacts.map(a => a.id).join(", ")}` }
             ]
-        })
-    );
+        };
+    });
+
+    // artifacts/get
+    server.tool("artifacts/get", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
+        const meta = await getFileMetadata(id);
+        if (!meta) {
+            throw new Error("Artifact not found");
+        }
+        let contentText = "";
+        let contentType = meta.contentType || "";
+        if (meta.fileType === "file") {
+            let exp = 300;
+            if (typeof expiresInSeconds === "number") {
+                exp = Math.max(1, Math.min(86400, expiresInSeconds));
+            }
+            const url = await getSignedDownloadUrl(meta.id, meta.fileName, Math.ceil(exp / 60));
+            contentText = `Download link (valid for ${exp} seconds): ${url}`;
+        } else {
+            try {
+                const { buffer } = await getFileContent(meta.id);
+                contentText = buffer.toString("utf-8");
+            } catch (e) {
+                contentText = "[Error reading file content]";
+            }
+        }
+        return {
+            artifact: meta,
+            content: [{ type: "text", text: contentText }]
+        };
+    });
+
+    // artifacts/get_metadata
+    server.tool("artifacts/get_metadata", GetArtifactParams.shape, async ({ id, expiresInSeconds }) => {
+        const meta = await getFileMetadata(id);
+        if (!meta) {
+            throw new Error("Artifact not found");
+        }
+        return {
+            artifact: meta,
+            content: [
+                {
+                    type: "text",
+                    text: Object.entries(meta).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("\n")
+                }
+            ]
+        };
+    });
+
+    // artifacts/search
+    server.tool("artifacts/search", SearchParams.shape, async ({ query }) => {
+        const embedding = await getEmbedding(query);
+        let topK = 5;
+        const filesRef = db.collection(FILES_COLLECTION);
+        // 1. Vector search
+        const vectorQuery = filesRef.findNearest("embedding", embedding, {
+            limit: topK,
+            distanceMeasure: "DOT_PRODUCT",
+        });
+        const vectorSnapshot = await vectorQuery.get();
+        const vectorArtifacts = vectorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // 2. Classical search (searchText prefix, case-insensitive)
+        const textQuery = query.toLowerCase();
+        const classicalSnapshot = await filesRef
+            .where("searchText", ">=", textQuery)
+            .where("searchText", "<=", textQuery + "\uf8ff")
+            .limit(topK)
+            .get();
+        const classicalArtifacts = classicalSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Merge and deduplicate by id
+        const allArtifactsMap = new Map();
+        for (const a of vectorArtifacts) allArtifactsMap.set(a.id, a);
+        for (const a of classicalArtifacts) allArtifactsMap.set(a.id, a);
+        const artifacts = Array.from(allArtifactsMap.values());
+        return {
+            artifacts,
+            content: [
+                { type: "text", text: `IDs: ${artifacts.map(a => a.id).join(", ")}` }
+            ]
+        };
+    });
+
+    // artifacts/upload
+    server.tool("artifacts/upload", UploadArtifactParams.shape, async (input) => {
+        const { fileName, contentType, data, ttlDays, title, description, fileType, metadata } = input;
+        if (contentType.startsWith("application/") || contentType === "binary/octet-stream") {
+            // Binary: return presigned upload URL
+            const { url, fileId, gcsPath } = await generateUploadUrl(fileName, contentType, ttlDays);
+            return {
+                uploadUrl: url,
+                fileId,
+                gcsPath,
+                message: "Upload your file using this URL with a PUT request."
+            };
+        } else {
+            // Text: upload directly
+            if (!data) {
+                throw new Error("Missing data for text upload");
+            }
+            const buffer = Buffer.from(data, "base64");
+            // --- EMBEDDING GENERATION ---
+            let embedding = undefined;
+            try {
+                const metaString = metadata ? Object.entries(metadata).map(([k, v]) => `${k}: ${v}`).join(" ") : "";
+                const concatText = [title, description, metaString].filter(Boolean).join(" ");
+                if (concatText.trim().length > 0) {
+                    embedding = await getEmbedding(concatText);
+                }
+            } catch (e) {
+                console.error("Failed to generate embedding:", e);
+            }
+            const fileMeta = await uploadFile(buffer, fileName, contentType, ttlDays, title, description, fileType, metadata);
+            // Store embedding in Firestore if present
+            if (embedding && fileMeta.id) {
+                await db.collection(FILES_COLLECTION).doc(fileMeta.id).update({ embedding });
+            }
+            return {
+                artifact: fileMeta,
+                message: "Text artifact uploaded successfully."
+            };
+        }
+    });
+
+    // artifacts/share
+    server.tool("artifacts/share", ShareArtifactParams, async ({ input }) => {
+        const { id, isShared, password } = input;
+        const fileRef = db.collection(FILES_COLLECTION).doc(id);
+        const update = {} as any;
+        if (typeof isShared === "boolean") update.isShared = isShared;
+        if (typeof password === "string") update.password = password;
+        await fileRef.update(update);
+        // Return the shareable link and status
+        const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/artifact/${id}`;
+        return {
+            id,
+            isShared: update.isShared,
+            password: !!update.password,
+            shareUrl,
+            message: `Artifact ${id} is now ${update.isShared ? "shared" : "private"}. Shareable link: ${shareUrl}`
+        };
+    });
 
     return server;
 }
