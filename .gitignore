@@ -1,10 +1,11 @@
 # Dependencies
 **/node_modules
 
-# Firebase build output
+# NPM build output
 out
 *.log
 **/*.cache
+dist
 
 # Environment Variables
 .env.local

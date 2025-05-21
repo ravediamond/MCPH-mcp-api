@@ -1,18 +1,18 @@
 import { v4 as uuidv4 } from "uuid";
-import { bucket, uploadsFolder } from "./gcpStorageClient.ts";
+import { bucket, uploadsFolder } from "./gcpStorageClient.js";
 import {
   saveFileMetadata,
   getFileMetadata,
   deleteFileMetadata,
   incrementDownloadCount,
   logEvent,
-} from "./firebaseService.ts";
-import { DATA_TTL } from "../config/constants.ts";
+} from "./firebaseService.js";
+import { DATA_TTL } from "../config/constants.js";
 import {
   shouldCompress,
   compressBuffer,
   decompressBuffer,
-} from "../lib/compressionUtils.ts";
+} from "../lib/compressionUtils.js";
 
 // File metadata type definition
 export interface FileMetadata {

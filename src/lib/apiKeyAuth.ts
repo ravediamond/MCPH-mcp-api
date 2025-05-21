@@ -1,4 +1,4 @@
-import { findUserByApiKey } from "../services/firebaseService.ts";
+import { findUserByApiKey } from "../services/firebaseService.js";
 import { Request, Response, NextFunction } from "express";
 
 /**

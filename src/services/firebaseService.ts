@@ -663,7 +663,7 @@ export async function hybridSearchArtifacts(query: string, topK: number = 5): Pr
     // 1. Vector search (if embedding available)
     let vectorArtifacts: FileMetadata[] = [];
     try {
-      const { getEmbedding } = await import("../lib/vertexAiEmbedding.ts");
+      const { getEmbedding } = await import("../lib/vertexAiEmbedding.js");
       const embedding = await getEmbedding(query);
       // Firestore vector search (if supported)
       // @ts-ignore
@@ -739,4 +739,4 @@ export async function updateArtifactSharing(
 }
 
 // Re-export presigned URL helpers from storageService
-export { generateUploadUrl, getSignedDownloadUrl } from "./storageService.ts";
+export { generateUploadUrl, getSignedDownloadUrl } from "./storageService.js";

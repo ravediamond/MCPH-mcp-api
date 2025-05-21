@@ -4,10 +4,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
-import { requireApiKeyAuth, apiKeyAuthMiddleware } from "./lib/apiKeyAuth.ts";
-import { getFileMetadata, FILES_COLLECTION, incrementUserToolUsage, db } from "./services/firebaseService.ts";
-import { getSignedDownloadUrl, getFileContent, generateUploadUrl, uploadFile } from "./services/storageService.ts";
-import { getEmbedding } from "./lib/vertexAiEmbedding.ts";
+import { requireApiKeyAuth, apiKeyAuthMiddleware } from "./lib/apiKeyAuth.js";
+import { getFileMetadata, FILES_COLLECTION, incrementUserToolUsage, db } from "./services/firebaseService.js";
+import { getSignedDownloadUrl, getFileContent, generateUploadUrl, uploadFile } from "./services/storageService.js";
+import { getEmbedding } from "./lib/vertexAiEmbedding.js";
 import util from "util";
 
 // Global error handlers for better diagnostics
