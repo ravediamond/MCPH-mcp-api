@@ -29,21 +29,25 @@ export async function requireApiKeyAuth(req: Request) {
 /**
  * Express middleware for API key authentication
  */
-export function apiKeyAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+export function apiKeyAuthMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   requireApiKeyAuth(req)
-    .then(user => {
+    .then((user) => {
       // Attach user to request for later use
       (req as any).user = user;
       next();
     })
-    .catch(err => {
+    .catch((err) => {
       res.status((err as any).status || 500).json({
         jsonrpc: "2.0",
         error: {
           code: -32000,
-          message: err.message || "Authentication error"
+          message: err.message || "Authentication error",
         },
-        id: null
+        id: null,
       });
     });
 }

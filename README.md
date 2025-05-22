@@ -1,19 +1,18 @@
 # MCPH-mcp-api
 
-MCPHub is a public remote artifact server for the Model Context Protocol (MCP). It supports real-time artifact management and sharing via the MCP protocol..
+MCPHub is a public remote crate server for the Model Context Protocol (MCP). It supports real-time crate management and sharing via the MCP protocol..
 MCP api implementation for MPCH
-
 
 ## Quick Start
 
-- **SSE Endpoint:** `https://mcp.mcph.io/api/mcp`
+- **SSE Endpoint:** `https://mcp.mcph.io/api/`
 - **Web UI:** [mcph.io](https://mcph.io)
-- **Artifact Page:** `https://mcph.io/artifact/[id]`
+- **Crate Page:** `https://mcph.io/crate/[id]`
 
 ### Connect with mcp-remote
 
 ```sh
-npx -y mcp-remote@latest https://mcp.mcph.io/mcp --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
+npx -y mcp-remote@latest https://mcp.mcph.io/ --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
 ```
 
 ```json
@@ -24,7 +23,7 @@ npx -y mcp-remote@latest https://mcp.mcph.io/mcp --header "Authorization: Bearer
       "args": [
         "-y",
         "mcp-remote@latest",
-        "http://mcp.mcph.io/mcp",
+        "http://mcp.mcph.io/",
         "--header",
         "Authorization: Bearer API_KEY",
         "--transport",
@@ -35,15 +34,14 @@ npx -y mcp-remote@latest https://mcp.mcph.io/mcp --header "Authorization: Bearer
 }
 ```
 
-
 ### debug
 
 ```sh
-npx -y -p mcp-remote@latest mcp-remote-client http://localhost:8080/mcp --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
+npx -y -p mcp-remote@latest mcp-remote-client http://localhost:8080/ --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
 ```
 
 ```sh
-npx -y -p mcp-remote@latest mcp-remote-client http://mcp.mcph.io/mcp --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
+npx -y -p mcp-remote@latest mcp-remote-client http://mcp.mcph.io/ --header "Authorization: Bearer API_KEY" --transport http-only --allow-http
 ```
 
 ### Authentication
@@ -52,24 +50,24 @@ Pass your API key as a Bearer token in the `Authorization` header if required.
 
 ## Available MCP Tools (via SSE)
 
-- **artifacts/list**: List all available artifacts.
-  - Output: `{ artifacts: [ { id, fileName, ... }, ... ], content: [ { type: 'text', text: 'IDs: ...' } ] }`
-- **artifacts/get**: Get the raw artifact data for a specific artifact by id.
-  - Output: `{ artifact: { ...meta }, content: [ { type: 'text', text: '...' } ] }` (binary files return a download link)
-- **artifacts/get_metadata**: Get all metadata fields as text for a specific artifact by id.
-  - Output: `{ artifact: { ...meta }, content: [ { type: 'text', text: 'key: value\n...' } ] }`
-- **artifacts/search**: Search for artifacts by query string in fileName or description.
-  - Output: `{ artifacts: [ ... ], content: [ { type: 'text', text: 'IDs: ...' } ] }`
-- **artifacts/upload**: Upload a new artifact. For binary files, returns a presigned upload URL. For text, uploads directly.
-  - Output: `{ uploadUrl, fileId, gcsPath, message }` (binary) or `{ artifact, message }` (text)
-- **artifacts/share**: Make an artifact shareable (public link) and optionally set/remove a password.
+- **crates_list**: List all available crate.
+  - Output: `{ crates: [ { id, fileName, ... }, ... ], content: [ { type: 'text', text: 'IDs: ...' } ] }`
+- **crates_get**: Get the raw crates data for a specific crate by id.
+  - Output: `{ crates: { ...meta }, content: [ { type: 'text', text: '...' } ] }` (binary files return a download link)
+- **crates_get_metadata**: Get all metadata fields as text for a specific crate by id.
+  - Output: `{ crate: { ...meta }, content: [ { type: 'text', text: 'key: value\n...' } ] }`
+- **crates_search**: Search for crates by query string in fileName or description.
+  - Output: `{ crates: [ ... ], content: [ { type: 'text', text: 'IDs: ...' } ] }`
+- **crates_upload**: Upload a new crate. For binary files, returns a presigned upload URL. For text, uploads directly.
+  - Output: `{ uploadUrl, fileId, gcsPath, message }` (binary) or `{ crate, message }` (text)
+- **crates_share**: Make an crate shareable (public link) and optionally set/remove a password.
   - Output: `{ id, isShared, password, shareUrl, message }`
 
 ## How the SSE Endpoint Works
 
 - Connect via SSE: `npx mcp-remote https://mcp.mcph.io/mcp`
 - On connect, you receive an `endpoint` event with your session URL. All JSON-RPC requests must include your `sessionId` as a query parameter.
-- Send JSON-RPC requests to the endpoint. Example for `artifacts/list`:
+- Send JSON-RPC requests to the endpoint. Example for `crates/list`:
 
 ```json
 {
@@ -77,7 +75,7 @@ Pass your API key as a Bearer token in the `Authorization` header if required.
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "artifacts/list",
+    "name": "crates/list",
     "arguments": {}
   }
 }

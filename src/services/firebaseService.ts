@@ -2,11 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-import {
-  initializeApp,
-  getApps,
-  getApp,
-} from "firebase-admin/app";
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
 import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
 
 let firebaseApp;
@@ -34,7 +30,10 @@ if (!settingsApplied) {
     settingsApplied = true;
     console.log("Firestore settings applied successfully.");
   } catch (error) {
-    console.warn("Could not apply Firestore settings, they may have already been configured:", error);
+    console.warn(
+      "Could not apply Firestore settings, they may have already been configured:",
+      error,
+    );
   }
 }
 
@@ -119,7 +118,7 @@ export interface FileMetadata {
   metadata?: Record<string, string>;
   isShared?: boolean; // New: whether the file is shared (default false)
   password?: string; // New: optional hashed password for download
-  fileType?: string; // Optional: type of artifact (generic, data, image, etc.)
+  fileType?: string; // Optional: type of crate (generic, data, image, etc.)
 }
 
 /**
@@ -169,10 +168,15 @@ export async function saveFileMetadata(
     // --- Generate searchText field ---
     const metaString = fileData.metadata
       ? Object.entries(fileData.metadata)
-        .map(([k, v]) => `${k} ${v}`)
-        .join(" ")
+          .map(([k, v]) => `${k} ${v}`)
+          .join(" ")
       : "";
-    const searchText = [fileData.title, fileData.fileName, fileData.description, metaString]
+    const searchText = [
+      fileData.title,
+      fileData.fileName,
+      fileData.description,
+      metaString,
+    ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -185,7 +189,10 @@ export async function saveFileMetadata(
     await db.collection(FILES_COLLECTION).doc(fileData.id).set(dataToSave);
     return true;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error saving file metadata to Firestore:", errMsg);
     return false;
   }
@@ -210,7 +217,10 @@ export async function getFileMetadata(
     // Convert Firestore timestamps back to Date objects
     return fromFirestoreData(data) as FileMetadata;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error getting file metadata from Firestore:", errMsg);
     return null;
   }
@@ -245,7 +255,10 @@ export async function incrementDownloadCount(fileId: string): Promise<number> {
 
     return downloadCount;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error incrementing download count in Firestore:", errMsg);
 
     // Attempt to get current count if update failed
@@ -266,7 +279,10 @@ export async function deleteFileMetadata(fileId: string): Promise<boolean> {
     await db.collection(FILES_COLLECTION).doc(fileId).delete();
     return true;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error deleting file metadata from Firestore:", errMsg);
     return false;
   }
@@ -307,8 +323,14 @@ export async function incrementMetric(
     const updatedDoc = await metricRef.get();
     return updatedDoc.data()?.[metric] || 0;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
-    console.error(`Error incrementing metric '${metric}' in Firestore:`, errMsg);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
+    console.error(
+      `Error incrementing metric '${metric}' in Firestore:`,
+      errMsg,
+    );
     return 0;
   }
 }
@@ -327,7 +349,10 @@ export async function getMetric(metric: string): Promise<number> {
 
     return doc.data()?.[metric] || 0;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error(`Error getting metric '${metric}' from Firestore:`, errMsg);
     return 0;
   }
@@ -365,7 +390,10 @@ export async function getDailyMetrics(
     await Promise.all(promises);
     return result;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error(
       `Error getting daily metrics for '${metric}' from Firestore:`,
       errMsg,
@@ -403,7 +431,10 @@ export async function logEvent(
     // This just increments the event counter; actual cleanup is done separately
     await incrementMetric(`events:${eventType}`);
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error logging event to Firestore:", errMsg);
   }
 }
@@ -434,7 +465,10 @@ export async function getEvents(
       return fromFirestoreData(data);
     });
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error("Error getting events from Firestore:", errMsg);
     return [];
   }
@@ -460,7 +494,10 @@ export async function getUserFiles(userId: string): Promise<FileMetadata[]> {
       (doc) => fromFirestoreData(doc.data()) as FileMetadata,
     );
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
     console.error(
       `Error getting files for user ${userId} from Firestore:`,
       errMsg,
@@ -646,34 +683,47 @@ export async function getUserStorageUsage(
       remaining: Math.max(0, STORAGE_LIMIT - used),
     };
   } catch (error) {
-    const errMsg = error instanceof Error ? error.stack || error.message : JSON.stringify(error);
-    console.error(`Error calculating storage usage for user ${userId}:`, errMsg);
+    const errMsg =
+      error instanceof Error
+        ? error.stack || error.message
+        : JSON.stringify(error);
+    console.error(
+      `Error calculating storage usage for user ${userId}:`,
+      errMsg,
+    );
     return { used: 0, limit: STORAGE_LIMIT, remaining: STORAGE_LIMIT };
   }
 }
 
 /**
- * Hybrid search for artifacts: vector (embedding) + classical (searchText)
+ * Hybrid search for crates: vector (embedding) + classical (searchText)
  * @param query The search query string
  * @param topK Number of results to return (default 5)
  * @returns Array of FileMetadata objects
  */
-export async function hybridSearchArtifacts(query: string, topK: number = 5): Promise<FileMetadata[]> {
+export async function hybridSearchCrates(
+  query: string,
+  topK: number = 5,
+): Promise<FileMetadata[]> {
   try {
     // 1. Vector search (if embedding available)
-    let vectorArtifacts: FileMetadata[] = [];
+    let vectorCrates: FileMetadata[] = [];
     try {
       const { getEmbedding } = await import("../lib/vertexAiEmbedding.js");
       const embedding = await getEmbedding(query);
       // Firestore vector search (if supported)
       // @ts-ignore
-      const vectorQuery = db.collection(FILES_COLLECTION).findNearest?.("embedding", embedding, {
-        limit: topK,
-        distanceMeasure: "DOT_PRODUCT",
-      });
+      const vectorQuery = db
+        .collection(FILES_COLLECTION)
+        .findNearest?.("embedding", embedding, {
+          limit: topK,
+          distanceMeasure: "DOT_PRODUCT",
+        });
       if (vectorQuery) {
         const vectorSnapshot = await vectorQuery.get();
-        vectorArtifacts = vectorSnapshot.docs.map((doc: any) => fromFirestoreData(doc.data()) as FileMetadata);
+        vectorCrates = vectorSnapshot.docs.map(
+          (doc: any) => fromFirestoreData(doc.data()) as FileMetadata,
+        );
       }
     } catch (e) {
       // Vector search not available or failed
@@ -686,15 +736,18 @@ export async function hybridSearchArtifacts(query: string, topK: number = 5): Pr
       .where("searchText", "<=", textQuery + "\uf8ff")
       .limit(topK)
       .get();
-    const classicalArtifacts = classicalSnapshot.docs.map((doc: any) => fromFirestoreData(doc.data()) as FileMetadata);
+    const classicalCrates = classicalSnapshot.docs.map(
+      (doc: any) => fromFirestoreData(doc.data()) as FileMetadata,
+    );
     // 3. Merge and deduplicate by id
-    const allArtifactsMap = new Map<string, FileMetadata>();
-    for (const a of vectorArtifacts) allArtifactsMap.set(a.id, a);
-    for (const a of classicalArtifacts) allArtifactsMap.set(a.id, a);
-    return Array.from(allArtifactsMap.values());
+    const allCratesMap = new Map<string, FileMetadata>();
+    for (const a of vectorCrates) allCratesMap.set(a.id, a);
+    for (const a of classicalCrates) allCratesMap.set(a.id, a);
+    return Array.from(allCratesMap.values());
   } catch (err) {
-    const errMsg = err instanceof Error ? err.stack || err.message : JSON.stringify(err);
-    console.error("Error in hybridSearchArtifacts:", errMsg);
+    const errMsg =
+      err instanceof Error ? err.stack || err.message : JSON.stringify(err);
+    console.error("Error in hybridSearchCrates:", errMsg);
     return [];
   }
 }
@@ -702,7 +755,9 @@ export async function hybridSearchArtifacts(query: string, topK: number = 5): Pr
 /**
  * Get all metadata fields for a file as a formatted text string
  */
-export async function getFileMetadataAsText(fileId: string): Promise<string | null> {
+export async function getFileMetadataAsText(
+  fileId: string,
+): Promise<string | null> {
   const meta = await getFileMetadata(fileId);
   if (!meta) return null;
   return Object.entries(meta)
@@ -711,20 +766,25 @@ export async function getFileMetadataAsText(fileId: string): Promise<string | nu
 }
 
 /**
- * Update sharing status and password for an artifact, and return shareable link
+ * Update sharing status and password for an crate, and return shareable link
  */
-export async function updateArtifactSharing(
+export async function updateCrateSharing(
   id: string,
   isShared?: boolean,
   password?: string,
-): Promise<{ id: string; isShared?: boolean; password: boolean; shareUrl: string } | null> {
+): Promise<{
+  id: string;
+  isShared?: boolean;
+  password: boolean;
+  shareUrl: string;
+} | null> {
   try {
     const fileRef = db.collection(FILES_COLLECTION).doc(id);
     const update: any = {};
     if (typeof isShared === "boolean") update.isShared = isShared;
     if (typeof password === "string") update.password = password;
     await fileRef.update(update);
-    const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/artifact/${id}`;
+    const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/crate/${id}`;
     return {
       id,
       isShared: update.isShared,
@@ -732,8 +792,9 @@ export async function updateArtifactSharing(
       shareUrl,
     };
   } catch (err) {
-    const errMsg = err instanceof Error ? err.stack || err.message : JSON.stringify(err);
-    console.error("Error updating artifact sharing:", errMsg);
+    const errMsg =
+      err instanceof Error ? err.stack || err.message : JSON.stringify(err);
+    console.error("Error updating crate sharing:", errMsg);
     return null;
   }
 }

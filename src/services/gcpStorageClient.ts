@@ -17,12 +17,12 @@ try {
   // The SDK will use Application Default Credentials (ADC) (Cloud Run, gcloud, etc)
   storage = new Storage(storageOptions);
   console.log(
-    `Initialized Google Cloud Storage client. Project ID: ${storage.projectId || "inferred"}.`
+    `Initialized Google Cloud Storage client. Project ID: ${storage.projectId || "inferred"}.`,
   );
 } catch (error) {
   console.error("Fatal error initializing Google Cloud Storage:", error);
   throw new Error(
-    "Failed to initialize storage service. Application may not function correctly."
+    "Failed to initialize storage service. Application may not function correctly.",
   );
 }
 
