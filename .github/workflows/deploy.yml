@@ -1,0 +1,58 @@
+name: Build and Deploy to Cloud Run
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build
+
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev
+      - run: |
+          docker build -t $IMAGE_PATH .
+          docker push $IMAGE_PATH
+        env:
+          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
+      - run: |
+          gcloud run deploy $RUN_SERVICE_NAME \
+            --image $IMAGE_PATH \
+            --region $REGION \
+            --project $GCP_PROJECT_ID \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "GCP_PROJECT_ID=${GCP_PROJECT_ID},REGION=${REGION},VERTEXAI_EMBEDDING_MODEL=${VERTEXAI_EMBEDDING_MODEL},GCS_BUCKET_NAME=${GCS_BUCKET_NAME},GCS_DEFAULT_BUCKET_LOCATION=${GCS_DEFAULT_BUCKET_LOCATION}"
+        env:
+          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.REGION }}
+          RUN_SERVICE_NAME: ${{ secrets.RUN_SERVICE_NAME }}
+          VERTEXAI_EMBEDDING_MODEL: ${{ secrets.VERTEXAI_EMBEDDING_MODEL }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          GCS_DEFAULT_BUCKET_LOCATION: ${{ secrets.GCS_DEFAULT_BUCKET_LOCATION }}
+          ARTIFACT_REGISTRY_LOCATION: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}
+          ARTIFACT_REGISTRY_REPO: ${{ secrets.ARTIFACT_REGISTRY_REPO }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
