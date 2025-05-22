@@ -2,7 +2,7 @@
 
 # Load environment variables from .env.local
 set -o allexport
-source .env.local
+source .env.production
 set +o allexport
 
 # Set variables from .env.local or use defaults if not set

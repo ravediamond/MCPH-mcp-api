@@ -8,8 +8,8 @@ out
 dist
 
 # Environment Variables
-.env.local
-*credentials.json
+.env.*
+service-account-credentials*
 *creds.json
 
 # Logs
