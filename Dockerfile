@@ -1,12 +1,26 @@
+# Use official Node.js slim image as the base
 FROM node:slim
 
+# Set working directory
 WORKDIR /app
+
+# Install dependencies
 COPY package*.json ./
-RUN npm install
-COPY . .
-# Remove service account credential files from the image (if present)
-RUN rm -f service-account-credentials.json service-account-credentials-prod.json .env.local .env.production
+RUN npm install --production
+
+# Copy source files
+COPY tsconfig.json ./
+COPY src ./src
+COPY README.md ./
+
+# Build the application
 RUN npm run build
+
+# Expose the application port
 EXPOSE 8080
-ENV PORT 8080
+
+# Set environment variables
+ENV PORT=8080
+
+# Start the application
 CMD ["npm", "start"]
