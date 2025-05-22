@@ -29,7 +29,7 @@ gcloud run deploy $RUN_SERVICE_NAME \
   --project $GCP_PROJECT_ID \
   --platform managed \
   --allow-unauthenticated \
-  --set-env-vars "GOOGLE_APPLICATION_CREDENTIALS=service-account-credentials.json,GCP_PROJECT_ID=${GCP_PROJECT_ID},REGION=${REGION},VERTEXAI_EMBEDDING_MODEL=${VERTEXAI_EMBEDDING_MODEL},GCS_BUCKET_NAME=${GCS_BUCKET_NAME},GCS_DEFAULT_BUCKET_LOCATION=${GCS_DEFAULT_BUCKET_LOCATION}"
+  --set-env-vars "GCP_PROJECT_ID=${GCP_PROJECT_ID},REGION=${REGION},VERTEXAI_EMBEDDING_MODEL=${VERTEXAI_EMBEDDING_MODEL},GCS_BUCKET_NAME=${GCS_BUCKET_NAME},GCS_DEFAULT_BUCKET_LOCATION=${GCS_DEFAULT_BUCKET_LOCATION}"
 
 echo "Deployment attempt finished. Check the Google Cloud Console for status and logs."
 echo "Cloud Run service logs for project $GCP_PROJECT_ID, service $RUN_SERVICE_NAME, region $REGION:"
