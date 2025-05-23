@@ -93,12 +93,51 @@ const SearchParams = z.object({
 });
 
 // Helper to create a new MCP server instance with real tools
-function getServer() {
+function getServer(req?: AuthenticatedRequest) {
   const server = new McpServer({
     name: "MCPH-mcp-server",
     description: "MCPH server for handling crates and tools.",
     version: "1.0.0",
   });
+
+  // --- WRAP TOOL REGISTRATION FOR USAGE TRACKING ---
+  const originalTool = server.tool;
+  server.tool = function (...args: any[]) {
+    const toolName = args[0];
+    let handler: any;
+    if (args.length === 3) {
+      handler = args[2];
+    } else if (args.length >= 4) {
+      handler = args[args.length - 1];
+    }
+    if (!handler) return (originalTool as any).apply(server, args);
+    const wrappedHandler = async (toolArgs: any, ...rest: any[]) => {
+      try {
+        if (req?.user && req.user.userId) {
+          const userId = req.user.userId;
+          const usage = await incrementUserToolUsage(
+            userId,
+            toolName,
+            req.clientName
+          );
+          console.log(
+            `Tool usage incremented for user ${userId}: ${toolName}, client: ${req.clientName || 'unknown'}, count: ${usage.count}, remaining: ${usage.remaining}`
+          );
+        } else {
+          console.warn('DEBUG tool usage tracking: req.user or req.user.userId missing');
+        }
+      } catch (err) {
+        console.error("Error incrementing tool usage:", err);
+      }
+      return handler(toolArgs, ...rest);
+    };
+    if (args.length === 3) {
+      args[2] = wrappedHandler;
+    } else {
+      args[args.length - 1] = wrappedHandler;
+    }
+    return (originalTool as any).apply(server, args);
+  };
 
   // crates/list
   server.tool("crates_list", {}, async () => {
@@ -352,63 +391,7 @@ app.post("/", apiKeyAuthMiddleware, async (req: AuthenticatedRequest, res) => {
     }
 
     // Create a new server instance for this request
-    const server = getServer();
-
-    // Create a wrapper function for each tool that tracks usage
-    const originalTool = server.tool;
-    server.tool = function (...args: any[]) {
-      const toolName = args[0];
-      const paramSchema = args[1];
-      let handler: any;
-
-      // Handle different call signatures based on number of arguments
-      if (args.length === 3) {
-        // Simple signature: name, paramSchema, handler
-        handler = args[2];
-      } else if (args.length >= 4) {
-        // More complex signature with description and annotations
-        // In this case, the handler is the last argument
-        handler = args[args.length - 1];
-      }
-
-      if (!handler) {
-        // If we can't find a handler, pass through to the original method
-        return (originalTool as any).apply(server, args);
-      }
-
-      // Create a new handler that tracks usage before calling the original handler
-      const wrappedHandler = async (toolArgs: any, ...rest: any[]) => {
-        try {
-          // Track tool usage before executing the tool
-          if (req.user && req.user.userId) {
-            const userId = req.user.userId;
-            const usage = await incrementUserToolUsage(
-              userId,
-              toolName,
-              req.clientName
-            );
-            console.log(
-              `Tool usage incremented for user ${userId}: ${toolName}, client: ${req.clientName || 'unknown'}, count: ${usage.count}, remaining: ${usage.remaining}`
-            );
-          }
-        } catch (err) {
-          console.error("Error incrementing tool usage:", err);
-        }
-
-        // Call the original handler
-        return handler(toolArgs, ...rest);
-      };
-
-      // Replace the handler in the args array
-      if (args.length === 3) {
-        args[2] = wrappedHandler;
-      } else {
-        args[args.length - 1] = wrappedHandler;
-      }
-
-      // Call the original tool method with our modified args
-      return (originalTool as any).apply(server, args);
-    };
+    const server = getServer(req);
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
@@ -461,3 +444,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`MCPH listening on http://localhost:${PORT}/`);
 });
+
