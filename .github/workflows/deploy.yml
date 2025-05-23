@@ -35,7 +35,7 @@ jobs:
           docker build -t $IMAGE_PATH .
           docker push $IMAGE_PATH
         env:
-          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
+          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}.docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
       - run: |
           gcloud run deploy $RUN_SERVICE_NAME \
             --image $IMAGE_PATH \
@@ -45,7 +45,7 @@ jobs:
             --allow-unauthenticated \
             --set-env-vars "GCP_PROJECT_ID=${GCP_PROJECT_ID},REGION=${REGION},VERTEXAI_EMBEDDING_MODEL=${VERTEXAI_EMBEDDING_MODEL},GCS_BUCKET_NAME=${GCS_BUCKET_NAME},GCS_DEFAULT_BUCKET_LOCATION=${GCS_DEFAULT_BUCKET_LOCATION}"
         env:
-          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
+          IMAGE_PATH: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}.docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           REGION: ${{ secrets.REGION }}
           RUN_SERVICE_NAME: ${{ secrets.RUN_SERVICE_NAME }}
