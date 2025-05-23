@@ -4,9 +4,11 @@ FROM node:slim
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
+# Copy package files
 COPY package*.json ./
-RUN npm install --production
+
+# Install ALL dependencies (including dev dependencies needed for build)
+RUN npm install
 
 # Copy source files
 COPY tsconfig.json ./
@@ -15,6 +17,9 @@ COPY README.md ./
 
 # Build the application
 RUN npm run build
+
+# Remove dev dependencies for a smaller image
+RUN npm prune --production
 
 # Expose the application port
 EXPOSE 8080
