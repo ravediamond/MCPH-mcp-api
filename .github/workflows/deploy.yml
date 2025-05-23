@@ -2,9 +2,9 @@ name: Build and Deploy to Cloud Run
 
 on:
   pull_request:
-    branches: [ master ]
+    branches: [ main, master ]
   push:
-    branches: [ master ]
+    branches: [ main, master, 'fix/fix-cicd' ]  # Added your current branch
 
 jobs:
   build:
