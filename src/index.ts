@@ -143,6 +143,8 @@ function getServer(req?: AuthenticatedRequest) {
   server.tool("crates_list", {}, async () => {
     const snapshot = await db
       .collection(FILES_COLLECTION)
+      .where("expiresAt", ">", new Date()) // Filter out expired crates
+      .orderBy("expiresAt", "desc") // Order by expiration date
       .orderBy("uploadedAt", "desc")
       .limit(100)
       .get();
@@ -201,14 +203,21 @@ function getServer(req?: AuthenticatedRequest) {
       if (!meta) {
         throw new Error("Crate not found");
       }
+      // Filter out unwanted properties
+      const filteredMeta = Object.fromEntries(
+        Object.entries(meta).filter(
+          ([key]) =>
+            !["embedding", "searchText", "userId", "gcsPath"].includes(key),
+        ),
+      );
       return {
-        crate: meta,
+        crate: filteredMeta,
         content: [
           {
             type: "text",
-            text: Object.entries(meta)
+            text: Object.entries(filteredMeta)
               .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-              .join("\n"),
+              .join("\\n"),
           },
         ],
       };
