@@ -1,6 +1,6 @@
 import { GoogleAuth } from "google-auth-library";
 
-const project = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!;
+const project = process.env.GCP_PROJECT_ID!;
 const location = process.env.REGION || "us-central1";
 const embedding_model =
   process.env.VERTEXAI_EMBEDDING_MODEL || "textembedding-gecko@001";
