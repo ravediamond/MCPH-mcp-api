@@ -264,8 +264,8 @@ function getServer() {
       try {
         const metaString = metadata
           ? Object.entries(metadata)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join(" ")
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" ")
           : "";
         const concatText = [title, description, metaString]
           .filter(Boolean)
@@ -340,6 +340,20 @@ app.post("/", apiKeyAuthMiddleware, async (req, res) => {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
     });
+
+    // Add event listener for tool calls to track usage
+    server.on("toolCall", async (toolName: string) => {
+      try {
+        if (req.user && req.user.userId) {
+          const userId = req.user.userId;
+          const usage = await incrementUserToolUsage(userId);
+          console.log(`Tool usage incremented for user ${userId}: ${toolName}, count: ${usage.count}, remaining: ${usage.remaining}`);
+        }
+      } catch (err) {
+        console.error("Error incrementing tool usage:", err);
+      }
+    });
+
     res.on("close", () => {
       transport.close();
       server.close();
