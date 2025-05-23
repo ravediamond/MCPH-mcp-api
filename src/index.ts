@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
-import { requireApiKeyAuth, apiKeyAuthMiddleware } from "./lib/apiKeyAuth.js";
+import { requireApiKeyAuth, apiKeyAuthMiddleware, AuthenticatedRequest } from "./lib/apiKeyAuth.js";
 import {
   getFileMetadata,
   FILES_COLLECTION,
@@ -330,28 +330,88 @@ function getServer() {
 }
 
 // Stateless MCP endpoint (modern Streamable HTTP, stateless)
-app.post("/", apiKeyAuthMiddleware, async (req, res) => {
+app.post("/", apiKeyAuthMiddleware, async (req: AuthenticatedRequest, res) => {
   console.log(
     `[${new Date().toISOString()}] Incoming POST / from ${req.ip || req.socket.remoteAddress}`,
   );
   console.log("Request body:", JSON.stringify(req.body));
   try {
+    // Extract client name from the initialize params if available
+    let clientName: string | undefined = undefined;
+
+    // Check if this is an initialize request with name parameter
+    if (req.body && req.body.method === "initialize" && req.body.params?.name) {
+      clientName = req.body.params.name;
+      // Store the client name on the request object for future reference
+      req.clientName = clientName;
+    }
+    // For other jsonrpc methods, try to extract from params
+    else if (req.body && req.body.params?.name) {
+      clientName = req.body.params.name;
+      req.clientName = clientName;
+    }
+
+    // Create a new server instance for this request
     const server = getServer();
+
+    // Create a wrapper function for each tool that tracks usage
+    const originalTool = server.tool;
+    server.tool = function (...args: any[]) {
+      const toolName = args[0];
+      const paramSchema = args[1];
+      let handler: any;
+
+      // Handle different call signatures based on number of arguments
+      if (args.length === 3) {
+        // Simple signature: name, paramSchema, handler
+        handler = args[2];
+      } else if (args.length >= 4) {
+        // More complex signature with description and annotations
+        // In this case, the handler is the last argument
+        handler = args[args.length - 1];
+      }
+
+      if (!handler) {
+        // If we can't find a handler, pass through to the original method
+        return (originalTool as any).apply(server, args);
+      }
+
+      // Create a new handler that tracks usage before calling the original handler
+      const wrappedHandler = async (toolArgs: any, ...rest: any[]) => {
+        try {
+          // Track tool usage before executing the tool
+          if (req.user && req.user.userId) {
+            const userId = req.user.userId;
+            const usage = await incrementUserToolUsage(
+              userId,
+              toolName,
+              req.clientName
+            );
+            console.log(
+              `Tool usage incremented for user ${userId}: ${toolName}, client: ${req.clientName || 'unknown'}, count: ${usage.count}, remaining: ${usage.remaining}`
+            );
+          }
+        } catch (err) {
+          console.error("Error incrementing tool usage:", err);
+        }
+
+        // Call the original handler
+        return handler(toolArgs, ...rest);
+      };
+
+      // Replace the handler in the args array
+      if (args.length === 3) {
+        args[2] = wrappedHandler;
+      } else {
+        args[args.length - 1] = wrappedHandler;
+      }
+
+      // Call the original tool method with our modified args
+      return (originalTool as any).apply(server, args);
+    };
+
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
-    });
-
-    // Add event listener for tool calls to track usage
-    server.on("toolCall", async (toolName: string) => {
-      try {
-        if (req.user && req.user.userId) {
-          const userId = req.user.userId;
-          const usage = await incrementUserToolUsage(userId);
-          console.log(`Tool usage incremented for user ${userId}: ${toolName}, count: ${usage.count}, remaining: ${usage.remaining}`);
-        }
-      } catch (err) {
-        console.error("Error incrementing tool usage:", err);
-      }
     });
 
     res.on("close", () => {
