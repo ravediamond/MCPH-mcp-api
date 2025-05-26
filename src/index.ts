@@ -243,38 +243,57 @@ function getServer(req?: AuthenticatedRequest) {
           };
         }
       }
-      // Handle binary files
-      else if (meta.category === CrateCategory.BINARY) {
+      // For generic binary files and data files, just send a link
+      else if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.DATA) {
         return {
           content: [
             {
               type: "text",
-              text: `Download link (valid for ${exp} seconds): ${url}`
+              text: `[${meta.title || id}](${url}) (Download link valid for ${exp} seconds)`
             }
           ]
         };
       }
-      // For all other types, return as a resource
+      // For text-based categories like CODE, JSON, MARKDOWN, etc., return the actual content
       else {
-        return {
-          resources: [
-            {
-              uri: `crate://${meta.id}`,
-              contents: [{
-                uri: url,
-                title: meta.title,
-                description: meta.description,
-                contentType: meta.mimeType
-              }]
-            }
-          ],
-          content: [
-            {
-              type: "text",
-              text: `Crate "${meta.title}" is available at crate://${meta.id}`
-            }
-          ]
-        };
+        try {
+          // Fetch the content
+          const result = await getCrateContent(meta.id);
+
+          // Convert buffer to text
+          const textContent = result.buffer.toString('utf-8');
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: textContent
+              }
+            ]
+          };
+        } catch (error) {
+          console.error(`Error fetching content for crate ${id}:`, error);
+          // Fallback to URL if fetching content fails
+          return {
+            resources: [
+              {
+                uri: `crate://${meta.id}`,
+                contents: [{
+                  uri: url,
+                  title: meta.title,
+                  description: meta.description,
+                  contentType: meta.mimeType
+                }]
+              }
+            ],
+            content: [
+              {
+                type: "text",
+                text: `Crate "${meta.title}" is available at crate://${meta.id}`
+              }
+            ]
+          };
+        }
       }
     }
   );
