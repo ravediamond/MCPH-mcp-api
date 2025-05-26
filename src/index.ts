@@ -155,11 +155,34 @@ function getServer(req?: AuthenticatedRequest) {
       .orderBy("createdAt", "desc")
       .limit(100)
       .get();
-    const crates = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null }> = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      // Filter out unwanted properties
+      const { embedding, searchField, gcsPath, ...filteredData } = data;
+      return {
+        id: doc.id,
+        ...filteredData,
+        // Calculate expiration date if ttlDays is present
+        expiresAt: data.ttlDays ? new Date(
+          new Date(data.createdAt.toDate()).getTime() +
+          (data.ttlDays * 24 * 60 * 60 * 1000)
+        ).toISOString() : null
+      };
+    });
+
     return {
       crates,
       content: [
-        { type: "text", text: `IDs: ${crates.map((a) => a.id).join(", ")}` },
+        {
+          type: "text",
+          text: crates.map(c =>
+            `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
+            `Description: ${c.description || 'No description'}\n` +
+            `Tags: ${c.tags?.join(', ') || 'None'}\n` +
+            `Expires: ${c.expiresAt || 'Never'}\n`
+          ).join('\n---\n')
+        },
       ],
     };
   });
@@ -197,36 +220,6 @@ function getServer(req?: AuthenticatedRequest) {
       return {
         crate: meta,
         content: [{ type: "text", text: contentText }],
-      };
-    },
-  );
-
-  // crates/get_metadata
-  server.tool(
-    "crates_get_metadata",
-    GetCrateParams.shape,
-    async ({ id, expiresInSeconds }) => {
-      const meta = await getCrateMetadata(id);
-      if (!meta) {
-        throw new Error("Crate not found");
-      }
-      // Filter out unwanted properties
-      const filteredMeta = Object.fromEntries(
-        Object.entries(meta).filter(
-          ([key]) =>
-            !["embedding", "searchField", "ownerId", "gcsPath"].includes(key),
-        ),
-      );
-      return {
-        crate: filteredMeta,
-        content: [
-          {
-            type: "text",
-            text: Object.entries(filteredMeta)
-              .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-              .join("\\n"),
-          },
-        ],
       };
     },
   );
