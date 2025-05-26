@@ -1,5 +1,13 @@
-import { findUserByApiKey } from "../services/firebaseService.js";
+import { findUserByApiKey, ApiKeyRecord } from "../services/firebaseService.js";
 import { Request, Response, NextFunction } from "express";
+
+/**
+ * Extended Express Request interface that includes the user property
+ */
+export interface AuthenticatedRequest extends Request {
+  user?: ApiKeyRecord;
+  clientName?: string;
+}
 
 /**
  * Checks for an API key in the Authorization header (Bearer <key>), validates it, and returns the user record if valid, otherwise throws.
@@ -37,7 +45,7 @@ export function apiKeyAuthMiddleware(
   requireApiKeyAuth(req)
     .then((user) => {
       // Attach user to request for later use
-      (req as any).user = user;
+      (req as AuthenticatedRequest).user = user;
       next();
     })
     .catch((err) => {

@@ -168,8 +168,8 @@ export async function saveFileMetadata(
     // --- Generate searchText field ---
     const metaString = fileData.metadata
       ? Object.entries(fileData.metadata)
-          .map(([k, v]) => `${k} ${v}`)
-          .join(" ")
+        .map(([k, v]) => `${k} ${v}`)
+        .join(" ")
       : "";
     const searchText = [
       fileData.title,
@@ -633,20 +633,49 @@ const USER_TOOL_CALL_LIMIT = 1000;
  */
 export async function incrementUserToolUsage(
   userId: string,
+  toolName?: string,
+  clientName?: string
 ): Promise<{ count: number; remaining: number }> {
   const now = new Date();
   const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const docId = `${userId}_${yearMonth}`;
   const docRef = db.collection(USER_USAGE_COLLECTION).doc(docId);
-  await docRef.set(
-    {
-      userId,
-      yearMonth,
-      count: FieldValue.increment(1),
-      updatedAt: new Date(),
-    },
-    { merge: true },
-  );
+
+  // Base data to store
+  const data: any = {
+    userId,
+    yearMonth,
+    count: FieldValue.increment(1),
+    updatedAt: new Date(),
+  };
+
+  // Add client name if provided
+  if (clientName) {
+    data.clientName = clientName;
+  }
+
+  // Add tool name if provided
+  if (toolName) {
+    data.lastToolUsed = toolName;
+
+    // Also update the tools array with this usage
+    if (toolName) {
+      const toolUsage = {
+        toolName,
+        timestamp: new Date(),
+        ...(clientName && { clientName })
+      };
+
+      // Use array-union to add to the array of tool usages
+      await docRef.set({
+        toolUsages: FieldValue.arrayUnion(toolUsage)
+      }, { merge: true });
+    }
+  }
+
+  // Update the main document
+  await docRef.set(data, { merge: true });
+
   const doc = await docRef.get();
   const count = doc.data()?.count || 0;
   return { count, remaining: Math.max(0, USER_TOOL_CALL_LIMIT - count) };
