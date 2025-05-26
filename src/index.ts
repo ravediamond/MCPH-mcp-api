@@ -6,19 +6,20 @@ import dotenv from "dotenv";
 import { randomUUID } from "crypto";
 import { requireApiKeyAuth, apiKeyAuthMiddleware, AuthenticatedRequest } from "./lib/apiKeyAuth.js";
 import {
-  getFileMetadata,
-  FILES_COLLECTION,
+  getCrateMetadata,
+  CRATES_COLLECTION,
   incrementUserToolUsage,
   db,
 } from "./services/firebaseService.js";
 import {
   getSignedDownloadUrl,
-  getFileContent,
+  getCrateContent,
   generateUploadUrl,
-  uploadFile,
+  uploadCrate,
 } from "./services/storageService.js";
 import { getEmbedding } from "./lib/vertexAiEmbedding.js";
 import util from "util";
+import { Crate, CrateCategory } from "./types/crate.js";
 
 // Global error handlers for better diagnostics
 process.on("unhandledRejection", (reason, promise) => {
@@ -80,13 +81,20 @@ const UploadCrateParams = z.object({
   ttlDays: z.number().int().min(1).max(365).optional(),
   title: z.string().optional(),
   description: z.string().optional(),
-  fileType: z.string().optional(),
+  category: z.nativeEnum(CrateCategory).optional(),
+  tags: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
+  shared: z.object({
+    public: z.boolean(),
+    sharedWith: z.array(z.string()).optional(),
+    passwordProtected: z.boolean().optional()
+  }).optional(),
 });
 const ShareCrateParams = z.object({
   id: z.string(),
-  isShared: z.boolean().optional(),
-  password: z.string().optional(),
+  public: z.boolean().optional(),
+  sharedWith: z.array(z.string()).optional(),
+  passwordProtected: z.boolean().optional(),
 });
 const SearchParams = z.object({
   query: z.string(),
@@ -142,10 +150,9 @@ function getServer(req?: AuthenticatedRequest) {
   // crates/list
   server.tool("crates_list", {}, async () => {
     const snapshot = await db
-      .collection(FILES_COLLECTION)
-      .where("expiresAt", ">", new Date()) // Filter out expired crates
-      .orderBy("expiresAt", "desc") // Order by expiration date
-      .orderBy("uploadedAt", "desc")
+      .collection(CRATES_COLLECTION)
+      .where("createdAt", ">", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Filter to last 30 days
+      .orderBy("createdAt", "desc")
       .limit(100)
       .get();
     const crates = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -162,29 +169,29 @@ function getServer(req?: AuthenticatedRequest) {
     "crates_get",
     GetCrateParams.shape,
     async ({ id, expiresInSeconds }) => {
-      const meta = await getFileMetadata(id);
+      const meta = await getCrateMetadata(id);
       if (!meta) {
         throw new Error("Crate not found");
       }
       let contentText = "";
-      let contentType = meta.contentType || "";
-      if (meta.fileType === "file") {
+      let contentType = meta.mimeType || "";
+      if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.IMAGE) {
         let exp = 300;
         if (typeof expiresInSeconds === "number") {
           exp = Math.max(1, Math.min(86400, expiresInSeconds));
         }
         const url = await getSignedDownloadUrl(
           meta.id,
-          meta.fileName,
+          meta.title,
           Math.ceil(exp / 60),
         );
         contentText = `Download link (valid for ${exp} seconds): ${url}`;
       } else {
         try {
-          const { buffer } = await getFileContent(meta.id);
+          const { buffer } = await getCrateContent(meta.id);
           contentText = buffer.toString("utf-8");
         } catch (e) {
-          contentText = "[Error reading file content]";
+          contentText = "[Error reading crate content]";
         }
       }
       return {
@@ -199,7 +206,7 @@ function getServer(req?: AuthenticatedRequest) {
     "crates_get_metadata",
     GetCrateParams.shape,
     async ({ id, expiresInSeconds }) => {
-      const meta = await getFileMetadata(id);
+      const meta = await getCrateMetadata(id);
       if (!meta) {
         throw new Error("Crate not found");
       }
@@ -207,7 +214,7 @@ function getServer(req?: AuthenticatedRequest) {
       const filteredMeta = Object.fromEntries(
         Object.entries(meta).filter(
           ([key]) =>
-            !["embedding", "searchText", "userId", "gcsPath"].includes(key),
+            !["embedding", "searchField", "ownerId", "gcsPath"].includes(key),
         ),
       );
       return {
@@ -228,9 +235,9 @@ function getServer(req?: AuthenticatedRequest) {
   server.tool("crates_search", SearchParams.shape, async ({ query }) => {
     const embedding = await getEmbedding(query);
     let topK = 5;
-    const filesRef = db.collection(FILES_COLLECTION);
+    const cratesRef = db.collection(CRATES_COLLECTION);
     // 1. Vector search
-    const vectorQuery = filesRef.findNearest("embedding", embedding, {
+    const vectorQuery = cratesRef.findNearest("embedding", embedding, {
       limit: topK,
       distanceMeasure: "DOT_PRODUCT",
     });
@@ -239,11 +246,11 @@ function getServer(req?: AuthenticatedRequest) {
       id: doc.id,
       ...doc.data(),
     }));
-    // 2. Classical search (searchText prefix, case-insensitive)
+    // 2. Classical search (searchField prefix, case-insensitive)
     const textQuery = query.toLowerCase();
-    const classicalSnapshot = await filesRef
-      .where("searchText", ">=", textQuery)
-      .where("searchText", "<=", textQuery + "\uf8ff")
+    const classicalSnapshot = await cratesRef
+      .where("searchField", ">=", textQuery)
+      .where("searchField", "<=", textQuery + "\uf8ff")
       .limit(topK)
       .get();
     const classicalCrates = classicalSnapshot.docs.map((doc) => ({
@@ -272,9 +279,27 @@ function getServer(req?: AuthenticatedRequest) {
       ttlDays,
       title,
       description,
-      fileType,
+      category,
+      tags,
       metadata,
+      shared,
     } = args;
+
+    // Create the partial crate data
+    const partialCrate: Partial<Crate> = {
+      title: title || fileName,
+      description,
+      ttlDays,
+      ownerId: req?.user?.userId || "anonymous",
+      tags,
+      metadata,
+      shared: shared || { public: false }
+    };
+
+    if (category) {
+      partialCrate.category = category;
+    }
+
     if (
       contentType.startsWith("application/") ||
       contentType === "binary/octet-stream"
@@ -294,7 +319,7 @@ function getServer(req?: AuthenticatedRequest) {
           },
         ],
         uploadUrl: url,
-        fileId,
+        crateId: fileId,
         gcsPath,
       };
     } else {
@@ -315,7 +340,8 @@ function getServer(req?: AuthenticatedRequest) {
             .map(([k, v]) => `${k}: ${v}`)
             .join(" ")
           : "";
-        const concatText = [title, description, metaString]
+        const tagsString = tags ? tags.join(" ") : "";
+        const concatText = [title, description, tagsString, metaString]
           .filter(Boolean)
           .join(" ");
         if (concatText.trim().length > 0) {
@@ -324,39 +350,53 @@ function getServer(req?: AuthenticatedRequest) {
       } catch (e) {
         console.error("Failed to generate embedding:", e);
       }
-      const fileMeta = await uploadFile(
+
+      const crate = await uploadCrate(
         buffer,
         fileName,
         contentType,
-        ttlDays,
-        title,
-        description,
-        fileType,
-        metadata,
+        partialCrate
       );
+
       // Store embedding in Firestore if present
-      if (embedding && fileMeta.id) {
+      if (embedding && crate.id) {
         await db
-          .collection(FILES_COLLECTION)
-          .doc(fileMeta.id)
+          .collection(CRATES_COLLECTION)
+          .doc(crate.id)
           .update({ embedding });
       }
       return {
         structuredContent: {},
-        content: [{ type: "text", text: "Text crate uploaded successfully." }],
-        crate: fileMeta,
+        content: [{ type: "text", text: "Crate uploaded successfully." }],
+        crate,
       };
     }
   });
 
   // crates/share
   server.tool("crates_share", ShareCrateParams.shape, async (args, extra) => {
-    const { id, isShared, password } = args;
-    const fileRef = db.collection(FILES_COLLECTION).doc(id);
-    const update = {} as any;
-    if (typeof isShared === "boolean") update.isShared = isShared;
-    if (typeof password === "string") update.password = password;
-    await fileRef.update(update);
+    const { id, public: isPublic, sharedWith, passwordProtected } = args;
+    const crateRef = db.collection(CRATES_COLLECTION).doc(id);
+
+    // Get current crate to validate ownership
+    const crateDoc = await crateRef.get();
+    if (!crateDoc.exists) {
+      throw new Error("Crate not found");
+    }
+
+    const crateData = crateDoc.data();
+    if (req?.user?.userId && crateData?.ownerId !== req.user.userId) {
+      throw new Error("You don't have permission to share this crate");
+    }
+
+    // Update sharing settings
+    const sharingUpdate: any = {};
+    if (typeof isPublic === 'boolean') sharingUpdate['shared.public'] = isPublic;
+    if (Array.isArray(sharedWith)) sharingUpdate['shared.sharedWith'] = sharedWith;
+    if (typeof passwordProtected === 'boolean') sharingUpdate['shared.passwordProtected'] = passwordProtected;
+
+    await crateRef.update(sharingUpdate);
+
     // Return the shareable link and status
     const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/crate/${id}`;
     return {
@@ -364,12 +404,12 @@ function getServer(req?: AuthenticatedRequest) {
       content: [
         {
           type: "text",
-          text: `Crate ${id} is now ${update.isShared ? "shared" : "private"}. Shareable link: ${shareUrl}`,
+          text: `Crate ${id} sharing settings updated. ${isPublic ? "Public link" : "Private link"}: ${shareUrl}`,
         },
       ],
       id,
-      isShared: update.isShared,
-      password: !!update.password,
+      isPublic,
+      passwordProtected,
       shareUrl,
     };
   });
