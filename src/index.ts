@@ -328,11 +328,37 @@ function getServer(req?: AuthenticatedRequest) {
     const allCratesMap = new Map();
     for (const a of vectorCrates) allCratesMap.set(a.id, a);
     for (const a of classicalCrates) allCratesMap.set(a.id, a);
-    const crates = Array.from(allCratesMap.values());
+    const allCrates = Array.from(allCratesMap.values());
+
+    // Format crates to match the list schema
+    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null }> = allCrates.map((doc) => {
+      // Filter out unwanted properties
+      const { embedding, searchField, gcsPath, ...filteredData } = doc;
+      return {
+        id: doc.id,
+        ...filteredData,
+        // Calculate expiration date if ttlDays is present
+        expiresAt: doc.ttlDays && doc.createdAt ? new Date(
+          new Date(doc.createdAt.toDate()).getTime() +
+          (doc.ttlDays * 24 * 60 * 60 * 1000)
+        ).toISOString() : null
+      };
+    });
+
     return {
       crates,
       content: [
-        { type: "text", text: `IDs: ${crates.map((a) => a.id).join(", ")}` },
+        {
+          type: "text",
+          text: crates.length > 0
+            ? crates.map(c =>
+              `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
+              `Description: ${c.description || 'No description'}\n` +
+              `Tags: ${c.tags?.join(', ') || 'None'}\n` +
+              `Expires: ${c.expiresAt || 'Never'}\n`
+            ).join('\n---\n')
+            : `No crates found matching "${query}"`
+        },
       ],
     };
   });
