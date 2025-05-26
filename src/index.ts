@@ -191,37 +191,69 @@ function getServer(req?: AuthenticatedRequest) {
   server.tool(
     "crates_get",
     GetCrateParams.shape,
-    async ({ id, expiresInSeconds }) => {
+    async ({ id, expiresInSeconds }, extra) => {
       const meta = await getCrateMetadata(id);
       if (!meta) {
         throw new Error("Crate not found");
       }
-      let contentText = "";
-      let contentType = meta.mimeType || "";
-      if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.IMAGE) {
-        let exp = 300;
-        if (typeof expiresInSeconds === "number") {
-          exp = Math.max(1, Math.min(86400, expiresInSeconds));
-        }
-        const url = await getSignedDownloadUrl(
-          meta.id,
-          meta.title,
-          Math.ceil(exp / 60),
-        );
-        contentText = `Download link (valid for ${exp} seconds): ${url}`;
-      } else {
-        try {
-          const { buffer } = await getCrateContent(meta.id);
-          contentText = buffer.toString("utf-8");
-        } catch (e) {
-          contentText = "[Error reading crate content]";
-        }
+
+      // Default expiration time (5 minutes) if not specified
+      const exp = typeof expiresInSeconds === "number"
+        ? Math.max(1, Math.min(86400, expiresInSeconds))
+        : 300;
+
+      // Get pre-signed URL regardless of type
+      const url = await getSignedDownloadUrl(
+        meta.id,
+        meta.title,
+        Math.ceil(exp / 60)
+      );
+
+      // Handle images differently with image content type
+      if (meta.category === CrateCategory.IMAGE) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Image "${meta.title}" is available at: ${url}`
+            }
+          ]
+        };
       }
-      return {
-        crate: meta,
-        content: [{ type: "text", text: contentText }],
-      };
-    },
+      // Handle binary files
+      else if (meta.category === CrateCategory.BINARY) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Download link (valid for ${exp} seconds): ${url}`
+            }
+          ]
+        };
+      }
+      // For all other types, return as a resource
+      else {
+        return {
+          resources: [
+            {
+              uri: `crate://${meta.id}`,
+              contents: [{
+                uri: url,
+                title: meta.title,
+                description: meta.description,
+                contentType: meta.mimeType
+              }]
+            }
+          ],
+          content: [
+            {
+              type: "text",
+              text: `Crate "${meta.title}" is available at crate://${meta.id}`
+            }
+          ]
+        };
+      }
+    }
   );
 
   // crates/search
