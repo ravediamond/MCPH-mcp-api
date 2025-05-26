@@ -1,4 +1,4 @@
-name: Build and Deploy to Cloud Run
+name: Build, Infra CI/CD, and Deploy to Cloud Run
 
 on:
   pull_request:
@@ -6,8 +6,27 @@ on:
   push:
     branches: [ master ]
 
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ secrets.REGION }} # Assuming REGION is also a secret, as used in current workflow
+  ARTIFACT_REGISTRY_REPO: ${{ secrets.ARTIFACT_REGISTRY_REPO }} # As used in current workflow
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME }} # As used in current workflow
+  RUN_SERVICE_NAME: ${{ secrets.RUN_SERVICE_NAME }} # As used in current workflow
+  TERRAFORM_STATE_BUCKET: ${{ secrets.TERRAFORM_STATE_BUCKET_NAME }}
+  # For Terraform variables, ensure they match what's in variables.tf or are passed explicitly
+  TF_VAR_gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}
+  TF_VAR_gcp_region: ${{ secrets.REGION }}
+  TF_VAR_artifact_registry_repository_id: ${{ secrets.ARTIFACT_REGISTRY_REPO }} # Or a more specific prod name
+  TF_VAR_cloud_run_service_name: ${{ secrets.RUN_SERVICE_NAME }} # Or a more specific prod name
+  TF_VAR_terraform_state_bucket_name: ${{ secrets.TERRAFORM_STATE_BUCKET_NAME }}
+  # The following TF_VARs might need to be set as secrets if they differ for prod
+  # TF_VAR_vertexai_embedding_model: ${{ secrets.VERTEXAI_EMBEDDING_MODEL }}
+  # TF_VAR_gcs_bucket_name_env: ${{ secrets.GCS_BUCKET_NAME_ENV_VAR }}
+  # TF_VAR_gcs_default_bucket_location_env: ${{ secrets.GCS_DEFAULT_BUCKET_LOCATION_ENV_VAR }}
+
+
 jobs:
-  build:
+  build_and_test: # Renamed from 'build' for clarity
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -16,33 +35,120 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
-      - run: npm run build
+      - run: npm run build # Assuming you have a build script
 
-  deploy:
+  terraform_plan: # New job for Terraform Plan on PRs
+    if: github.event_name == 'pull_request'
+    needs: build_and_test # Depends on successful build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0 # Or your desired version
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Terraform Init
+        run: terraform init -backend-config="bucket=${{ env.TERRAFORM_STATE_BUCKET }}" -input=false
+        env:
+          # Pass GCP Project ID for provider if not already set by TF_VAR_gcp_project_id
+          GOOGLE_PROJECT: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Terraform Workspace Prod
+        run: terraform workspace select prod || terraform workspace new prod
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -var="cloud_run_image_uri=gcr.io/cloudrun/hello" # Use placeholder for plan
+        id: plan
+        continue-on-error: true # Allow PR to continue even if plan has issues to show diff
+
+      - name: Comment Plan Output on PR
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request' && steps.plan.outputs.stdout
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `#### Terraform Plan Output \`\${{ env.TF_WORKSPACE }}\`
+            \`\`\`terraform
+
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+            
+  deploy_infra_and_app: # Renamed from 'deploy'
     if: github.event_name == 'push' && (github.ref == 'refs/heads/master')
+    needs: [] # Can run in parallel with build_and_test if no build artifacts are needed for infra
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          node-version: '20'
+          terraform_version: 1.5.0 # Or your desired version
+        working-directory: ./terraform # Set working directory for this action if all terraform steps are there
+
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Terraform Init (Prod)
+        run: terraform init -backend-config="bucket=${{ env.TERRAFORM_STATE_BUCKET }}" -input=false
+        working-directory: ./terraform
+        env:
+          GOOGLE_PROJECT: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Terraform Workspace Prod
+        run: terraform workspace select prod || terraform workspace new prod
+        working-directory: ./terraform
+
+      - name: Terraform Apply (Prod)
+        run: terraform apply -auto-approve -input=false -var="cloud_run_image_uri=${{ env.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:latest"
+        id: apply
+        working-directory: ./terraform
+
+      # Application Deployment Steps (Docker build & push, Cloud Run update)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # - run: npm ci # If needed for deploy scripts, otherwise build artifact might be better
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev --quiet
+
       - name: Build and push Docker image
         run: |
           docker build -t ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest .
           docker push ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest
+      
       - name: Deploy to Cloud Run
+        id: deploy_run
         run: |
-          gcloud run deploy ${{ secrets.RUN_SERVICE_NAME }} \
-            --image ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ secrets.IMAGE_NAME }}:latest \
-            --region ${{ secrets.REGION }} \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --platform managed \
-            --allow-unauthenticated \
-            --set-env-vars "GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},REGION=${{ secrets.REGION }},VERTEXAI_EMBEDDING_MODEL=${{ secrets.VERTEXAI_EMBEDDING_MODEL }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }},GCS_DEFAULT_BUCKET_LOCATION=${{ secrets.GCS_DEFAULT_BUCKET_LOCATION }}"
+          gcloud run deploy ${{ env.RUN_SERVICE_NAME }} \
+            --image ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:latest \
+            --region ${{ env.GCP_REGION }} \
+            --project ${{ env.GCP_PROJECT_ID }} \
+            --platform managed
+            # --allow-unauthenticated # This is now handled by Terraform
+            # --set-env-vars "..." # Environment variables are now set by Terraform
+          echo "::set-output name=service_url::$(gcloud run services describe ${{ env.RUN_SERVICE_NAME }} --platform managed --region ${{ env.GCP_REGION }} --project ${{ env.GCP_PROJECT_ID }} --format 'value(status.url)')"
+
+      - name: Echo Cloud Run URL
+        run: echo "Cloud Run Service URL: ${{ steps.deploy_run.outputs.service_url }}"
