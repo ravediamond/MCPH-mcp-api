@@ -156,13 +156,15 @@ function getServer(req?: AuthenticatedRequest) {
       .limit(100)
       .get();
 
-    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null }> = snapshot.docs.map((doc) => {
+    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null; contentType?: string; category?: CrateCategory }> = snapshot.docs.map((doc) => {
       const data = doc.data();
       // Filter out unwanted properties
       const { embedding, searchField, gcsPath, ...filteredData } = data;
       return {
         id: doc.id,
         ...filteredData,
+        contentType: data.mimeType, // Add contentType
+        category: data.category, // Add category
         // Calculate expiration date if ttlDays is present
         expiresAt: data.ttlDays ? new Date(
           new Date(data.createdAt.toDate()).getTime() +
@@ -179,6 +181,8 @@ function getServer(req?: AuthenticatedRequest) {
           text: crates.map(c =>
             `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
             `Description: ${c.description || 'No description'}\n` +
+            `Category: ${c.category || 'N/A'}\n` + // Add category
+            `Content Type: ${c.contentType || 'N/A'}\n` + // Add contentType
             `Tags: ${c.tags?.join(', ') || 'None'}\n` +
             `Expires: ${c.expiresAt || 'Never'}\n`
           ).join('\n---\n')
@@ -331,12 +335,14 @@ function getServer(req?: AuthenticatedRequest) {
     const allCrates = Array.from(allCratesMap.values());
 
     // Format crates to match the list schema
-    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null }> = allCrates.map((doc) => {
+    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null; contentType?: string; category?: CrateCategory }> = allCrates.map((doc) => {
       // Filter out unwanted properties
       const { embedding, searchField, gcsPath, ...filteredData } = doc;
       return {
         id: doc.id,
         ...filteredData,
+        contentType: doc.mimeType, // Add contentType
+        category: doc.category, // Add category
         // Calculate expiration date if ttlDays is present
         expiresAt: doc.ttlDays && doc.createdAt ? new Date(
           new Date(doc.createdAt.toDate()).getTime() +
@@ -354,6 +360,8 @@ function getServer(req?: AuthenticatedRequest) {
             ? crates.map(c =>
               `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
               `Description: ${c.description || 'No description'}\n` +
+              `Category: ${c.category || 'N/A'}\n` + // Add category
+              `Content Type: ${c.contentType || 'N/A'}\n` + // Add contentType
               `Tags: ${c.tags?.join(', ') || 'None'}\n` +
               `Expires: ${c.expiresAt || 'Never'}\n`
             ).join('\n---\n')
