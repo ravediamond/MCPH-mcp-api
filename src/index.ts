@@ -211,14 +211,37 @@ function getServer(req?: AuthenticatedRequest) {
 
       // Handle images differently with image content type
       if (meta.category === CrateCategory.IMAGE) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Image "${meta.title}" is available at: ${url}`
-            }
-          ]
-        };
+        try {
+          // Fetch the image content
+          const result = await getCrateContent(meta.id);
+
+          // Convert to base64
+          const base64 = result.buffer.toString('base64');
+
+          // Determine the correct MIME type or default to image/png
+          const mimeType = meta.mimeType || 'image/png';
+
+          return {
+            content: [
+              {
+                type: "image",
+                data: base64,
+                mimeType: mimeType
+              }
+            ]
+          };
+        } catch (error) {
+          console.error(`Error fetching image content for crate ${id}:`, error);
+          // Fallback to URL if fetching content fails
+          return {
+            content: [
+              {
+                type: "text",
+                text: `![${meta.title || 'Image'}](${url})`
+              }
+            ]
+          };
+        }
       }
       // Handle binary files
       else if (meta.category === CrateCategory.BINARY) {
