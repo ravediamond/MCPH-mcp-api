@@ -18,3 +18,9 @@ yarn-debug.log*
 yarn-error.log*
 
 .vscode
+
+# Terraform
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
