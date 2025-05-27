@@ -93,6 +93,9 @@ const ShareCrateParams = z.object({
   sharedWith: z.array(z.string()).optional(),
   passwordProtected: z.boolean().optional(),
 });
+const UnshareCrateParams = z.object({
+  id: z.string(),
+});
 const SearchParams = z.object({
   query: z.string(),
 });
@@ -570,6 +573,44 @@ function getServer(req?: AuthenticatedRequest) {
       isPublic,
       passwordProtected,
       shareUrl,
+    };
+  });
+
+  // crates/unshare
+  server.tool("crates_unshare", UnshareCrateParams.shape, async (args, extra) => {
+    const { id } = args;
+    const crateRef = db.collection(CRATES_COLLECTION).doc(id);
+
+    // Get current crate to validate ownership
+    const crateDoc = await crateRef.get();
+    if (!crateDoc.exists) {
+      throw new Error("Crate not found");
+    }
+
+    const crateData = crateDoc.data();
+    if (req?.user?.userId && crateData?.ownerId !== req.user.userId) {
+      throw new Error("You don't have permission to unshare this crate");
+    }
+
+    // Update sharing settings to remove all sharing
+    const sharingUpdate = {
+      'shared.public': false,
+      'shared.sharedWith': [],
+      'shared.passwordProtected': false,
+      // Optionally, clear the password if it's stored directly and not hashed
+      // 'shared.password': null, // orFieldValue.delete() if you want to remove the field
+    };
+
+    await crateRef.update(sharingUpdate);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Crate ${id} has been unshared. It is now private.`,
+        },
+      ],
+      id,
     };
   });
 
