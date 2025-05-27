@@ -426,7 +426,7 @@ function getServer(req?: AuthenticatedRequest) {
         content: [
           {
             type: "text",
-            text: `Upload your file using this URL with a PUT request: ${url}`,
+            text: `Upload your file using this URL with a PUT request: ${url}. Crate ID: ${fileId}`,
           },
         ],
         uploadUrl: url,
@@ -476,7 +476,7 @@ function getServer(req?: AuthenticatedRequest) {
           .update({ embedding });
       }
       return {
-        content: [{ type: "text", text: "Crate uploaded successfully." }],
+        content: [{ type: "text", text: `Crate uploaded successfully. Crate ID: ${crate.id}` }],
         crate,
       };
     }
