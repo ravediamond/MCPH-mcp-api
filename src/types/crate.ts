@@ -11,6 +11,8 @@ export enum CrateCategory {
 
 export interface CrateSharing {
     public: boolean;
+    passwordProtected?: boolean; // Added
+    password?: string; // Added for storing hashed password if passwordProtected is true
     // You can extend this with more sharing options as needed
     // For example: teamId?: string; domains?: string[]; etc.
 }

@@ -84,11 +84,8 @@ const UploadCrateParams = z.object({
   category: z.nativeEnum(CrateCategory).optional(),
   tags: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
-  shared: z.object({
-    public: z.boolean(),
-    sharedWith: z.array(z.string()).optional(),
-    passwordProtected: z.boolean().optional()
-  }).optional(),
+  isPublic: z.boolean().optional().default(false),
+  password: z.string().optional(),
 });
 const ShareCrateParams = z.object({
   id: z.string(),
@@ -383,7 +380,8 @@ function getServer(req?: AuthenticatedRequest) {
       category,
       tags,
       metadata,
-      shared,
+      isPublic,
+      password,
     } = args;
 
     // Create the partial crate data
@@ -394,7 +392,11 @@ function getServer(req?: AuthenticatedRequest) {
       ownerId: req?.user?.userId || "anonymous",
       tags,
       metadata,
-      shared: shared || { public: false }
+      shared: {
+        public: isPublic,
+        passwordProtected: !!password,
+        password: password, // Store the actual password (or a hash of it)
+      }
     };
 
     if (category) {
