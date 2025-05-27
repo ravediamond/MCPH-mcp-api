@@ -259,16 +259,31 @@ export async function uploadCrate(
     // Create a GCS file object
     const file = bucket.file(gcsPath);
 
+    let bufferToSave = fileBuffer;
+
+    // Special handling for JSON content
+    if (contentType === 'application/json') {
+      try {
+        // The content should already be valid JSON string
+        const jsonString = bufferToSave.toString('utf8');
+        // Validate JSON by parsing and re-stringifying with proper formatting
+        const jsonContent = JSON.parse(jsonString);
+        bufferToSave = Buffer.from(JSON.stringify(jsonContent, null, 2), 'utf8');
+      } catch (err) {
+        console.error('Error validating JSON content:', err);
+        throw new Error('Invalid JSON content');
+      }
+    }
+
+    let compressionMetadata = null;
     // Check if the file should be compressed based on content type and filename
     const shouldUseCompression = shouldCompress(contentType, fileName);
-    let bufferToSave = fileBuffer;
-    let compressionMetadata = null;
 
     // Apply compression if appropriate
     if (shouldUseCompression) {
       console.log(`Compressing crate: ${fileName} (${contentType})`);
       try {
-        const result = await compressBuffer(fileBuffer);
+        const result = await compressBuffer(bufferToSave);
         bufferToSave = result.compressedBuffer;
         compressionMetadata = result.compressionMetadata;
         console.log(
@@ -300,7 +315,7 @@ export async function uploadCrate(
           }),
         },
       },
-      resumable: true, // Changed to true for more robust uploads
+      resumable: true,
     });
 
     // Create the searchField for hybrid search
@@ -602,26 +617,35 @@ export async function getCrateContent(crateId: string): Promise<{
     const fileMetadata = await file.getMetadata();
     const compressed = fileMetadata[0]?.metadata?.compressed === "true";
 
+    let finalContent = content;
     if (compressed) {
       try {
         console.log(`Decompressing crate: ${crate.id}`);
-        const decompressedContent = await decompressBuffer(content);
-
-        // Increment download count
-        await incrementCrateDownloadCount(crateId);
-
-        return { buffer: decompressedContent, crate };
+        finalContent = await decompressBuffer(content);
+        console.log(`Decompression successful: ${crate.id}`);
       } catch (decompressionError) {
         console.error("Error during decompression:", decompressionError);
         // Fall back to returning the compressed content
-        return { buffer: content, crate };
+        finalContent = content;
+      }
+    }
+
+    // If this is a JSON file, ensure proper encoding
+    if (crate.mimeType === 'application/json' || crate.category === CrateCategory.JSON) {
+      try {
+        // Parse and re-stringify to ensure proper formatting
+        const jsonContent = JSON.parse(finalContent.toString('utf8'));
+        finalContent = Buffer.from(JSON.stringify(jsonContent, null, 2), 'utf8');
+      } catch (err) {
+        console.error('Error processing JSON content:', err);
+        // If JSON parsing fails, return the content as-is
       }
     }
 
     // Increment download count
     await incrementCrateDownloadCount(crateId);
 
-    return { buffer: content, crate };
+    return { buffer: finalContent, crate };
   } catch (error) {
     console.error("Error getting crate content:", error);
     throw new Error("Failed to get crate content");

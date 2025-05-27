@@ -384,8 +384,12 @@ function getServer(req?: AuthenticatedRequest) {
       password,
     } = args;
 
+    // Ensure we have a proper fileName for JSON content
     let effectiveFileName = fileName;
-    if (!effectiveFileName || effectiveFileName.trim() === "") {
+    if ((!effectiveFileName || effectiveFileName.trim() === "") && contentType === 'application/json') {
+      const baseNameSource = (title && title.trim() !== "") ? title.trim() : "untitled";
+      effectiveFileName = `${baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, '_')}.json`;
+    } else if (!effectiveFileName || effectiveFileName.trim() === "") {
       const baseNameSource = (title && title.trim() !== "") ? title.trim() : "untitled";
       // Sanitize, removing potentially problematic characters including dots from the base name
       const baseName = baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, '_');
@@ -394,36 +398,16 @@ function getServer(req?: AuthenticatedRequest) {
       if (category) {
         switch (category) {
           case CrateCategory.JSON: extension = ".json"; break;
-          case CrateCategory.IMAGE: extension = ".png"; break; // Default, refined below
+          case CrateCategory.IMAGE: extension = ".png"; break;
           case CrateCategory.MARKDOWN: extension = ".md"; break;
-          case CrateCategory.CODE: extension = ".txt"; break;   // Default, refined below
+          case CrateCategory.CODE: extension = ".txt"; break;
           case CrateCategory.BINARY: extension = ".bin"; break;
-          case CrateCategory.DATA: extension = ".dat"; break;   // Default, refined below
+          case CrateCategory.DATA: extension = ".dat"; break;
           case CrateCategory.TODOLIST: extension = ".todolist"; break;
           case CrateCategory.DIAGRAM: extension = ".mmd"; break;
           default: extension = ".dat";
         }
-
-        // Refine extension based on contentType for certain categories
-        if (category === CrateCategory.IMAGE && contentType) {
-          if (contentType === "image/jpeg" || contentType === "image/jpg") extension = ".jpg";
-          else if (contentType === "image/png") extension = ".png";
-          else if (contentType === "image/gif") extension = ".gif";
-          else if (contentType === "image/webp") extension = ".webp";
-          else if (contentType === "image/svg+xml") extension = ".svg";
-          // else keep category default (e.g., .png)
-        } else if (category === CrateCategory.CODE && contentType) {
-          if (contentType.includes("javascript")) extension = ".js";
-          else if (contentType.includes("typescript")) extension = ".ts";
-          else if (contentType.includes("python")) extension = ".py";
-          else if (contentType.includes("html")) extension = ".html";
-          else if (contentType.includes("css")) extension = ".css";
-          else if (contentType.includes("xml")) extension = ".xml";
-          // else keep category default (e.g., .txt)
-        } else if (category === CrateCategory.DATA && contentType === "text/csv") {
-          extension = ".csv";
-        }
-      } else if (contentType) { // Infer from contentType if category is missing
+      } else if (contentType) {
         if (contentType === "application/json") extension = ".json";
         else if (contentType === "image/jpeg" || contentType === "image/jpg") extension = ".jpg";
         else if (contentType === "image/png") extension = ".png";
@@ -439,7 +423,7 @@ function getServer(req?: AuthenticatedRequest) {
         else if (contentType.startsWith("application/octet-stream") || contentType.startsWith("binary/")) extension = ".bin";
         else extension = ".dat";
       } else {
-        extension = ".dat"; // Ultimate fallback
+        extension = ".dat";
       }
       effectiveFileName = `${baseName}${extension}`;
     }
@@ -476,9 +460,9 @@ function getServer(req?: AuthenticatedRequest) {
     const isBinaryContentType = contentType.startsWith("application/") || contentType === "binary/octet-stream";
 
     // Return presigned URL for binary/data categories or binary content types without data
-    if (isBinaryOrDataCategory || (isBinaryContentType && !data)) {
+    if ((isBinaryOrDataCategory || isBinaryContentType) && !data) {
       const { url, fileId, gcsPath } = await generateUploadUrl(
-        effectiveFileName, // Use effectiveFileName
+        effectiveFileName,
         contentType,
         ttlDays,
       );
@@ -501,8 +485,12 @@ function getServer(req?: AuthenticatedRequest) {
           isError: true,
         };
       }
-      const buffer = Buffer.from(data, "base64");
-      // --- EMBEDDING GENERATION ---
+
+      const buffer =
+        contentType === "application/json"
+          ? Buffer.from(data, "utf8")
+          : Buffer.from(data, "base64");
+      // Generate embedding from metadata and content
       let embedding = undefined;
       try {
         const metaString = metadata
@@ -523,7 +511,7 @@ function getServer(req?: AuthenticatedRequest) {
 
       const crate = await uploadCrate(
         buffer,
-        effectiveFileName, // Use effectiveFileName
+        effectiveFileName,
         contentType,
         partialCrate
       );
@@ -535,6 +523,7 @@ function getServer(req?: AuthenticatedRequest) {
           .doc(crate.id)
           .update({ embedding });
       }
+
       return {
         content: [{ type: "text", text: `Crate uploaded successfully. Crate ID: ${crate.id}` }],
         crate,
