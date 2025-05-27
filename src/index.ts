@@ -4,7 +4,11 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
-import { requireApiKeyAuth, apiKeyAuthMiddleware, AuthenticatedRequest } from "./lib/apiKeyAuth.js";
+import {
+  requireApiKeyAuth,
+  apiKeyAuthMiddleware,
+  AuthenticatedRequest,
+} from "./lib/apiKeyAuth.js";
 import {
   getCrateMetadata,
   CRATES_COLLECTION,
@@ -126,13 +130,15 @@ function getServer(req?: AuthenticatedRequest) {
           const usage = await incrementUserToolUsage(
             userId,
             toolName,
-            req.clientName
+            req.clientName,
           );
           console.log(
-            `Tool usage incremented for user ${userId}: ${toolName}, client: ${req.clientName || 'unknown'}, count: ${usage.count}, remaining: ${usage.remaining}`
+            `Tool usage incremented for user ${userId}: ${toolName}, client: ${req.clientName || "unknown"}, count: ${usage.count}, remaining: ${usage.remaining}`,
           );
         } else {
-          console.warn('DEBUG tool usage tracking: req.user or req.user.userId missing');
+          console.warn(
+            "DEBUG tool usage tracking: req.user or req.user.userId missing",
+          );
         }
       } catch (err) {
         console.error("Error incrementing tool usage:", err);
@@ -156,7 +162,14 @@ function getServer(req?: AuthenticatedRequest) {
       .limit(100)
       .get();
 
-    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null; contentType?: string; category?: CrateCategory }> = snapshot.docs.map((doc) => {
+    const crates: Array<
+      Partial<Crate> & {
+        id: string;
+        expiresAt: string | null;
+        contentType?: string;
+        category?: CrateCategory;
+      }
+    > = snapshot.docs.map((doc) => {
       const data = doc.data();
       // Filter out unwanted properties
       const { embedding, searchField, gcsPath, ...filteredData } = data;
@@ -166,10 +179,12 @@ function getServer(req?: AuthenticatedRequest) {
         contentType: data.mimeType, // Add contentType
         category: data.category, // Add category
         // Calculate expiration date if ttlDays is present
-        expiresAt: data.ttlDays ? new Date(
-          new Date(data.createdAt.toDate()).getTime() +
-          (data.ttlDays * 24 * 60 * 60 * 1000)
-        ).toISOString() : null
+        expiresAt: data.ttlDays
+          ? new Date(
+              new Date(data.createdAt.toDate()).getTime() +
+                data.ttlDays * 24 * 60 * 60 * 1000,
+            ).toISOString()
+          : null,
       };
     });
 
@@ -178,14 +193,17 @@ function getServer(req?: AuthenticatedRequest) {
       content: [
         {
           type: "text",
-          text: crates.map(c =>
-            `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
-            `Description: ${c.description || 'No description'}\n` +
-            `Category: ${c.category || 'N/A'}\n` + // Add category
-            `Content Type: ${c.contentType || 'N/A'}\n` + // Add contentType
-            `Tags: ${c.tags?.join(', ') || 'None'}\n` +
-            `Expires: ${c.expiresAt || 'Never'}\n`
-          ).join('\n---\n')
+          text: crates
+            .map(
+              (c) =>
+                `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
+                `Description: ${c.description || "No description"}\n` +
+                `Category: ${c.category || "N/A"}\n` + // Add category
+                `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
+                `Tags: ${c.tags?.join(", ") || "None"}\n` +
+                `Expires: ${c.expiresAt || "Never"}\n`,
+            )
+            .join("\n---\n"),
         },
       ],
     };
@@ -202,15 +220,16 @@ function getServer(req?: AuthenticatedRequest) {
       }
 
       // Default expiration time (5 minutes) if not specified
-      const exp = typeof expiresInSeconds === "number"
-        ? Math.max(1, Math.min(86400, expiresInSeconds))
-        : 300;
+      const exp =
+        typeof expiresInSeconds === "number"
+          ? Math.max(1, Math.min(86400, expiresInSeconds))
+          : 300;
 
       // Get pre-signed URL regardless of type
       const url = await getSignedDownloadUrl(
         meta.id,
         meta.title,
-        Math.ceil(exp / 60)
+        Math.ceil(exp / 60),
       );
 
       // Handle images differently with image content type
@@ -220,19 +239,19 @@ function getServer(req?: AuthenticatedRequest) {
           const result = await getCrateContent(meta.id);
 
           // Convert to base64
-          const base64 = result.buffer.toString('base64');
+          const base64 = result.buffer.toString("base64");
 
           // Determine the correct MIME type or default to image/png
-          const mimeType = meta.mimeType || 'image/png';
+          const mimeType = meta.mimeType || "image/png";
 
           return {
             content: [
               {
                 type: "image",
                 data: base64,
-                mimeType: mimeType
-              }
-            ]
+                mimeType: mimeType,
+              },
+            ],
           };
         } catch (error) {
           console.error(`Error fetching image content for crate ${id}:`, error);
@@ -241,21 +260,24 @@ function getServer(req?: AuthenticatedRequest) {
             content: [
               {
                 type: "text",
-                text: `![${meta.title || 'Image'}](${url})`
-              }
-            ]
+                text: `![${meta.title || "Image"}](${url})`,
+              },
+            ],
           };
         }
       }
       // For generic binary files and data files, just send a link
-      else if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.DATA) {
+      else if (
+        meta.category === CrateCategory.BINARY ||
+        meta.category === CrateCategory.DATA
+      ) {
         return {
           content: [
             {
               type: "text",
-              text: `[${meta.title || id}](${url}) (Download link valid for ${exp} seconds)`
-            }
-          ]
+              text: `[${meta.title || id}](${url}) (Download link valid for ${exp} seconds)`,
+            },
+          ],
         };
       }
       // For text-based categories like CODE, JSON, MARKDOWN, etc., return the actual content
@@ -265,15 +287,15 @@ function getServer(req?: AuthenticatedRequest) {
           const result = await getCrateContent(meta.id);
 
           // Convert buffer to text
-          const textContent = result.buffer.toString('utf-8');
+          const textContent = result.buffer.toString("utf-8");
 
           return {
             content: [
               {
                 type: "text",
-                text: textContent
-              }
-            ]
+                text: textContent,
+              },
+            ],
           };
         } catch (error) {
           console.error(`Error fetching content for crate ${id}:`, error);
@@ -282,24 +304,26 @@ function getServer(req?: AuthenticatedRequest) {
             resources: [
               {
                 uri: `crate://${meta.id}`,
-                contents: [{
-                  uri: url,
-                  title: meta.title,
-                  description: meta.description,
-                  contentType: meta.mimeType
-                }]
-              }
+                contents: [
+                  {
+                    uri: url,
+                    title: meta.title,
+                    description: meta.description,
+                    contentType: meta.mimeType,
+                  },
+                ],
+              },
             ],
             content: [
               {
                 type: "text",
-                text: `Crate "${meta.title}" is available at crate://${meta.id}`
-              }
-            ]
+                text: `Crate "${meta.title}" is available at crate://${meta.id}`,
+              },
+            ],
           };
         }
       }
-    }
+    },
   );
 
   // crates/search
@@ -335,7 +359,14 @@ function getServer(req?: AuthenticatedRequest) {
     const allCrates = Array.from(allCratesMap.values());
 
     // Format crates to match the list schema
-    const crates: Array<Partial<Crate> & { id: string; expiresAt: string | null; contentType?: string; category?: CrateCategory }> = allCrates.map((doc) => {
+    const crates: Array<
+      Partial<Crate> & {
+        id: string;
+        expiresAt: string | null;
+        contentType?: string;
+        category?: CrateCategory;
+      }
+    > = allCrates.map((doc) => {
       // Filter out unwanted properties
       const { embedding, searchField, gcsPath, ...filteredData } = doc;
       return {
@@ -344,10 +375,13 @@ function getServer(req?: AuthenticatedRequest) {
         contentType: doc.mimeType, // Add contentType
         category: doc.category, // Add category
         // Calculate expiration date if ttlDays is present
-        expiresAt: doc.ttlDays && doc.createdAt ? new Date(
-          new Date(doc.createdAt.toDate()).getTime() +
-          (doc.ttlDays * 24 * 60 * 60 * 1000)
-        ).toISOString() : null
+        expiresAt:
+          doc.ttlDays && doc.createdAt
+            ? new Date(
+                new Date(doc.createdAt.toDate()).getTime() +
+                  doc.ttlDays * 24 * 60 * 60 * 1000,
+              ).toISOString()
+            : null,
       };
     });
 
@@ -356,16 +390,20 @@ function getServer(req?: AuthenticatedRequest) {
       content: [
         {
           type: "text",
-          text: crates.length > 0
-            ? crates.map(c =>
-              `ID: ${c.id}\nTitle: ${c.title || 'Untitled'}\n` +
-              `Description: ${c.description || 'No description'}\n` +
-              `Category: ${c.category || 'N/A'}\n` + // Add category
-              `Content Type: ${c.contentType || 'N/A'}\n` + // Add contentType
-              `Tags: ${c.tags?.join(', ') || 'None'}\n` +
-              `Expires: ${c.expiresAt || 'Never'}\n`
-            ).join('\n---\n')
-            : `No crates found matching "${query}"`
+          text:
+            crates.length > 0
+              ? crates
+                  .map(
+                    (c) =>
+                      `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
+                      `Description: ${c.description || "No description"}\n` +
+                      `Category: ${c.category || "N/A"}\n` + // Add category
+                      `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
+                      `Tags: ${c.tags?.join(", ") || "None"}\n` +
+                      `Expires: ${c.expiresAt || "Never"}\n`,
+                  )
+                  .join("\n---\n")
+              : `No crates found matching "${query}"`,
         },
       ],
     };
@@ -378,9 +416,9 @@ function getServer(req?: AuthenticatedRequest) {
       contentType,
       data,
       ttlDays,
-      title,     // Original title from args
+      title, // Original title from args
       description,
-      category,  // Original category from args
+      category, // Original category from args
       tags,
       metadata,
       isPublic,
@@ -389,30 +427,53 @@ function getServer(req?: AuthenticatedRequest) {
 
     // Ensure we have a proper fileName for JSON content
     let effectiveFileName = fileName;
-    if ((!effectiveFileName || effectiveFileName.trim() === "") && contentType === 'application/json') {
-      const baseNameSource = (title && title.trim() !== "") ? title.trim() : "untitled";
-      effectiveFileName = `${baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, '_')}.json`;
+    if (
+      (!effectiveFileName || effectiveFileName.trim() === "") &&
+      contentType === "application/json"
+    ) {
+      const baseNameSource =
+        title && title.trim() !== "" ? title.trim() : "untitled";
+      effectiveFileName = `${baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, "_")}.json`;
     } else if (!effectiveFileName || effectiveFileName.trim() === "") {
-      const baseNameSource = (title && title.trim() !== "") ? title.trim() : "untitled";
+      const baseNameSource =
+        title && title.trim() !== "" ? title.trim() : "untitled";
       // Sanitize, removing potentially problematic characters including dots from the base name
-      const baseName = baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, '_');
+      const baseName = baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, "_");
 
       let extension = "";
       if (category) {
         switch (category) {
-          case CrateCategory.JSON: extension = ".json"; break;
-          case CrateCategory.IMAGE: extension = ".png"; break;
-          case CrateCategory.MARKDOWN: extension = ".md"; break;
-          case CrateCategory.CODE: extension = ".txt"; break;
-          case CrateCategory.BINARY: extension = ".bin"; break;
-          case CrateCategory.DATA: extension = ".dat"; break;
-          case CrateCategory.TODOLIST: extension = ".todolist"; break;
-          case CrateCategory.DIAGRAM: extension = ".mmd"; break;
-          default: extension = ".dat";
+          case CrateCategory.JSON:
+            extension = ".json";
+            break;
+          case CrateCategory.IMAGE:
+            extension = ".png";
+            break;
+          case CrateCategory.MARKDOWN:
+            extension = ".md";
+            break;
+          case CrateCategory.CODE:
+            extension = ".txt";
+            break;
+          case CrateCategory.BINARY:
+            extension = ".bin";
+            break;
+          case CrateCategory.DATA:
+            extension = ".dat";
+            break;
+          case CrateCategory.TODOLIST:
+            extension = ".todolist";
+            break;
+          case CrateCategory.DIAGRAM:
+            extension = ".mmd";
+            break;
+          default:
+            extension = ".dat";
         }
       } else if (contentType) {
         if (contentType === "application/json") extension = ".json";
-        else if (contentType === "image/jpeg" || contentType === "image/jpg") extension = ".jpg";
+        else if (contentType === "image/jpeg" || contentType === "image/jpg")
+          extension = ".jpg";
         else if (contentType === "image/png") extension = ".png";
         else if (contentType === "image/gif") extension = ".gif";
         else if (contentType === "image/webp") extension = ".webp";
@@ -423,7 +484,11 @@ function getServer(req?: AuthenticatedRequest) {
         else if (contentType.includes("typescript")) extension = ".ts";
         else if (contentType.includes("python")) extension = ".py";
         else if (contentType.startsWith("text/")) extension = ".txt";
-        else if (contentType.startsWith("application/octet-stream") || contentType.startsWith("binary/")) extension = ".bin";
+        else if (
+          contentType.startsWith("application/octet-stream") ||
+          contentType.startsWith("binary/")
+        )
+          extension = ".bin";
         else extension = ".dat";
       } else {
         extension = ".dat";
@@ -441,7 +506,7 @@ function getServer(req?: AuthenticatedRequest) {
         public: isPublic,
         passwordProtected: !!password,
         password: password, // Store the actual password (or a hash of it)
-      }
+      },
     };
 
     // Only add tags if they exist and are a non-empty array
@@ -459,8 +524,11 @@ function getServer(req?: AuthenticatedRequest) {
     }
 
     // Determine if we should return a presigned URL or directly upload
-    const isBinaryOrDataCategory = category === CrateCategory.BINARY || category === CrateCategory.DATA;
-    const isBinaryContentType = contentType.startsWith("application/") || contentType === "binary/octet-stream";
+    const isBinaryOrDataCategory =
+      category === CrateCategory.BINARY || category === CrateCategory.DATA;
+    const isBinaryContentType =
+      contentType.startsWith("application/") ||
+      contentType === "binary/octet-stream";
 
     const isBigDataType =
       category === CrateCategory.DATA ||
@@ -501,8 +569,8 @@ function getServer(req?: AuthenticatedRequest) {
     try {
       const metaString = metadata
         ? Object.entries(metadata)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(" ")
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" ")
         : "";
       const tagsString = tags ? tags.join(" ") : "";
       const concatText = [title, description, tagsString, metaString]
@@ -519,7 +587,7 @@ function getServer(req?: AuthenticatedRequest) {
       buffer,
       effectiveFileName,
       contentType,
-      partialCrate
+      partialCrate,
     );
 
     // Store embedding in Firestore if present
@@ -531,7 +599,12 @@ function getServer(req?: AuthenticatedRequest) {
     }
 
     return {
-      content: [{ type: "text", text: `Crate uploaded successfully. Crate ID: ${crate.id}` }],
+      content: [
+        {
+          type: "text",
+          text: `Crate uploaded successfully. Crate ID: ${crate.id}`,
+        },
+      ],
       crate,
     };
   });
@@ -554,9 +627,12 @@ function getServer(req?: AuthenticatedRequest) {
 
     // Update sharing settings
     const sharingUpdate: any = {};
-    if (typeof isPublic === 'boolean') sharingUpdate['shared.public'] = isPublic;
-    if (Array.isArray(sharedWith)) sharingUpdate['shared.sharedWith'] = sharedWith;
-    if (typeof passwordProtected === 'boolean') sharingUpdate['shared.passwordProtected'] = passwordProtected;
+    if (typeof isPublic === "boolean")
+      sharingUpdate["shared.public"] = isPublic;
+    if (Array.isArray(sharedWith))
+      sharingUpdate["shared.sharedWith"] = sharedWith;
+    if (typeof passwordProtected === "boolean")
+      sharingUpdate["shared.passwordProtected"] = passwordProtected;
 
     await crateRef.update(sharingUpdate);
 
@@ -577,42 +653,46 @@ function getServer(req?: AuthenticatedRequest) {
   });
 
   // crates/unshare
-  server.tool("crates_unshare", UnshareCrateParams.shape, async (args, extra) => {
-    const { id } = args;
-    const crateRef = db.collection(CRATES_COLLECTION).doc(id);
+  server.tool(
+    "crates_unshare",
+    UnshareCrateParams.shape,
+    async (args, extra) => {
+      const { id } = args;
+      const crateRef = db.collection(CRATES_COLLECTION).doc(id);
 
-    // Get current crate to validate ownership
-    const crateDoc = await crateRef.get();
-    if (!crateDoc.exists) {
-      throw new Error("Crate not found");
-    }
+      // Get current crate to validate ownership
+      const crateDoc = await crateRef.get();
+      if (!crateDoc.exists) {
+        throw new Error("Crate not found");
+      }
 
-    const crateData = crateDoc.data();
-    if (req?.user?.userId && crateData?.ownerId !== req.user.userId) {
-      throw new Error("You don't have permission to unshare this crate");
-    }
+      const crateData = crateDoc.data();
+      if (req?.user?.userId && crateData?.ownerId !== req.user.userId) {
+        throw new Error("You don't have permission to unshare this crate");
+      }
 
-    // Update sharing settings to remove all sharing
-    const sharingUpdate = {
-      'shared.public': false,
-      'shared.sharedWith': [],
-      'shared.passwordProtected': false,
-      // Optionally, clear the password if it's stored directly and not hashed
-      // 'shared.password': null, // orFieldValue.delete() if you want to remove the field
-    };
+      // Update sharing settings to remove all sharing
+      const sharingUpdate = {
+        "shared.public": false,
+        "shared.sharedWith": [],
+        "shared.passwordProtected": false,
+        // Optionally, clear the password if it's stored directly and not hashed
+        // 'shared.password': null, // orFieldValue.delete() if you want to remove the field
+      };
 
-    await crateRef.update(sharingUpdate);
+      await crateRef.update(sharingUpdate);
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Crate ${id} has been unshared. It is now private.`,
-        },
-      ],
-      id,
-    };
-  });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Crate ${id} has been unshared. It is now private.`,
+          },
+        ],
+        id,
+      };
+    },
+  );
 
   return server;
 }
@@ -693,4 +773,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`MCPH listening on http://localhost:${PORT}/`);
 });
-

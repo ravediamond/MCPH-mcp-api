@@ -102,15 +102,15 @@ export async function generateUploadUrl(
     ) {
       throw new Error(
         "Failed to generate upload URL due to a signing error. " +
-        "This usually means the GCS client is missing `client_email` or `private_key` in its credentials. " +
-        "If running in production (e.g., Vercel), ensure the service account used by the environment has the required permissions. " +
-        'If running locally, ensure Application Default Credentials (ADC) are configured correctly (e.g., via `gcloud auth application-default login`) and that the service account has permissions to sign (e.g., "Service Account Token Creator" role).',
+          "This usually means the GCS client is missing `client_email` or `private_key` in its credentials. " +
+          "If running in production (e.g., Vercel), ensure the service account used by the environment has the required permissions. " +
+          'If running locally, ensure Application Default Credentials (ADC) are configured correctly (e.g., via `gcloud auth application-default login`) and that the service account has permissions to sign (e.g., "Service Account Token Creator" role).',
       );
     }
     // Fallback for other errors
     throw new Error(
       "Failed to generate upload URL. Original error: " +
-      (error.message || "Unknown error"),
+        (error.message || "Unknown error"),
     );
   }
 }
@@ -196,8 +196,8 @@ export async function uploadFile(
     // --- Generate searchText field ---
     const metaString = metadata
       ? Object.entries(metadata)
-        .map(([k, v]) => `${k} ${v}`)
-        .join(" ")
+          .map(([k, v]) => `${k} ${v}`)
+          .join(" ")
       : "";
     const searchText = [title, fileName, description, metaString]
       .filter(Boolean)
@@ -247,7 +247,7 @@ export async function uploadCrate(
   fileBuffer: Buffer,
   fileName: string,
   contentType: string,
-  crateData: Partial<Crate>
+  crateData: Partial<Crate>,
 ): Promise<Crate> {
   try {
     // Generate a unique ID for the crate
@@ -262,16 +262,19 @@ export async function uploadCrate(
     let bufferToSave = fileBuffer;
 
     // Special handling for JSON content
-    if (contentType === 'application/json') {
+    if (contentType === "application/json") {
       try {
         // The content should already be valid JSON string
-        const jsonString = bufferToSave.toString('utf8');
+        const jsonString = bufferToSave.toString("utf8");
         // Validate JSON by parsing and re-stringifying with proper formatting
         const jsonContent = JSON.parse(jsonString);
-        bufferToSave = Buffer.from(JSON.stringify(jsonContent, null, 2), 'utf8');
+        bufferToSave = Buffer.from(
+          JSON.stringify(jsonContent, null, 2),
+          "utf8",
+        );
       } catch (err) {
-        console.error('Error validating JSON content:', err);
-        throw new Error('Invalid JSON content');
+        console.error("Error validating JSON content:", err);
+        throw new Error("Invalid JSON content");
       }
     }
 
@@ -321,8 +324,8 @@ export async function uploadCrate(
     // Create the searchField for hybrid search
     const metaString = crateData.metadata
       ? Object.entries(crateData.metadata)
-        .map(([k, v]) => `${k} ${v}`)
-        .join(" ")
+          .map(([k, v]) => `${k} ${v}`)
+          .join(" ")
       : "";
 
     const tagsString = crateData.tags ? crateData.tags.join(" ") : "";
@@ -330,12 +333,15 @@ export async function uploadCrate(
       crateData.title || fileName,
       crateData.description || "",
       tagsString,
-      metaString
-    ].filter(Boolean).join(" ").toLowerCase();
+      metaString,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
     // Create default sharing config if not provided
     const sharing: CrateSharing = crateData.shared || {
-      public: false
+      public: false,
     };
 
     // Create the complete crate metadata
@@ -347,14 +353,15 @@ export async function uploadCrate(
       createdAt: new Date(),
       ttlDays: crateData.ttlDays || DATA_TTL.DEFAULT_DAYS,
       mimeType: contentType,
-      category: crateData.category || getDefaultCategoryForFile(fileName, contentType),
+      category:
+        crateData.category || getDefaultCategoryForFile(fileName, contentType),
       gcsPath: gcsPath,
       shared: sharing,
       tags: crateData.tags,
       searchField,
       size: bufferToSave.length,
       downloadCount: 0,
-      metadata: crateData.metadata
+      metadata: crateData.metadata,
     };
 
     // Store metadata in Firestore
@@ -489,7 +496,9 @@ export async function getFileContent(fileId: string): Promise<{
 }> {
   try {
     // Get file metadata from Firestore
-    const metadata = (await getCrateMetadata(fileId)) as unknown as FileMetadata;
+    const metadata = (await getCrateMetadata(
+      fileId,
+    )) as unknown as FileMetadata;
     if (!metadata) {
       throw new Error("File not found");
     }
@@ -547,7 +556,9 @@ export async function getFileStream(fileId: string): Promise<{
 }> {
   try {
     // Get file metadata from Firestore
-    const metadata = (await getCrateMetadata(fileId)) as unknown as FileMetadata;
+    const metadata = (await getCrateMetadata(
+      fileId,
+    )) as unknown as FileMetadata;
     if (!metadata) {
       throw new Error("File not found");
     }
@@ -631,13 +642,19 @@ export async function getCrateContent(crateId: string): Promise<{
     }
 
     // If this is a JSON file, ensure proper encoding
-    if (crate.mimeType === 'application/json' || crate.category === CrateCategory.JSON) {
+    if (
+      crate.mimeType === "application/json" ||
+      crate.category === CrateCategory.JSON
+    ) {
       try {
         // Parse and re-stringify to ensure proper formatting
-        const jsonContent = JSON.parse(finalContent.toString('utf8'));
-        finalContent = Buffer.from(JSON.stringify(jsonContent, null, 2), 'utf8');
+        const jsonContent = JSON.parse(finalContent.toString("utf8"));
+        finalContent = Buffer.from(
+          JSON.stringify(jsonContent, null, 2),
+          "utf8",
+        );
       } catch (err) {
-        console.error('Error processing JSON content:', err);
+        console.error("Error processing JSON content:", err);
         // If JSON parsing fails, return the content as-is
       }
     }
@@ -655,14 +672,17 @@ export async function getCrateContent(crateId: string): Promise<{
 /**
  * Get the default category for a file based on its extension and MIME type
  */
-function getDefaultCategoryForFile(fileName: string, mimeType: string): CrateCategory {
+function getDefaultCategoryForFile(
+  fileName: string,
+  mimeType: string,
+): CrateCategory {
   // First check MIME type
   if (mimeType && MIME_TYPE_TO_CATEGORY[mimeType]) {
     return MIME_TYPE_TO_CATEGORY[mimeType];
   }
 
   // Then check file extension
-  const extension = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+  const extension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
   if (extension && EXTENSION_TO_CATEGORY[extension]) {
     return EXTENSION_TO_CATEGORY[extension];
   }
