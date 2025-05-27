@@ -390,8 +390,6 @@ function getServer(req?: AuthenticatedRequest) {
       description,
       ttlDays,
       ownerId: req?.user?.userId || "anonymous",
-      tags,
-      metadata,
       shared: {
         public: isPublic,
         passwordProtected: !!password,
@@ -399,15 +397,26 @@ function getServer(req?: AuthenticatedRequest) {
       }
     };
 
+    // Only add tags if they exist and are a non-empty array
+    if (tags && Array.isArray(tags) && tags.length > 0) {
+      partialCrate.tags = tags;
+    }
+
+    // Only add metadata if it exists
+    if (metadata && Object.keys(metadata).length > 0) {
+      partialCrate.metadata = metadata;
+    }
+
     if (category) {
       partialCrate.category = category;
     }
 
-    if (
-      contentType.startsWith("application/") ||
-      contentType === "binary/octet-stream"
-    ) {
-      // Binary: return presigned upload URL
+    // Determine if we should return a presigned URL or directly upload
+    const isBinaryOrDataCategory = category === CrateCategory.BINARY || category === CrateCategory.DATA;
+    const isBinaryContentType = contentType.startsWith("application/") || contentType === "binary/octet-stream";
+
+    // Return presigned URL for binary/data categories or binary content types without data
+    if (isBinaryOrDataCategory || (isBinaryContentType && !data)) {
       const { url, fileId, gcsPath } = await generateUploadUrl(
         fileName,
         contentType,
@@ -425,10 +434,10 @@ function getServer(req?: AuthenticatedRequest) {
         gcsPath,
       };
     } else {
-      // Text: upload directly
+      // For other categories or when data is provided, upload directly
       if (!data) {
         return {
-          content: [{ type: "text", text: "Missing data for text upload" }],
+          content: [{ type: "text", text: "Missing data for direct upload" }],
           isError: true,
         };
       }
