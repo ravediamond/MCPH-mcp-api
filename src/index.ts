@@ -371,22 +371,82 @@ function getServer(req?: AuthenticatedRequest) {
   // crates/upload
   server.tool("crates_upload", UploadCrateParams.shape, async (args, extra) => {
     const {
-      fileName,
+      fileName, // Original fileName from args
       contentType,
       data,
       ttlDays,
-      title,
+      title,     // Original title from args
       description,
-      category,
+      category,  // Original category from args
       tags,
       metadata,
       isPublic,
       password,
     } = args;
 
+    let effectiveFileName = fileName;
+    if (!effectiveFileName || effectiveFileName.trim() === "") {
+      const baseNameSource = (title && title.trim() !== "") ? title.trim() : "untitled";
+      // Sanitize, removing potentially problematic characters including dots from the base name
+      const baseName = baseNameSource.replace(/[/\\0?%*:|"<>.\\s]/g, '_');
+
+      let extension = "";
+      if (category) {
+        switch (category) {
+          case CrateCategory.JSON: extension = ".json"; break;
+          case CrateCategory.IMAGE: extension = ".png"; break; // Default, refined below
+          case CrateCategory.MARKDOWN: extension = ".md"; break;
+          case CrateCategory.CODE: extension = ".txt"; break;   // Default, refined below
+          case CrateCategory.BINARY: extension = ".bin"; break;
+          case CrateCategory.DATA: extension = ".dat"; break;   // Default, refined below
+          case CrateCategory.TODOLIST: extension = ".todolist"; break;
+          case CrateCategory.DIAGRAM: extension = ".mmd"; break;
+          default: extension = ".dat";
+        }
+
+        // Refine extension based on contentType for certain categories
+        if (category === CrateCategory.IMAGE && contentType) {
+          if (contentType === "image/jpeg" || contentType === "image/jpg") extension = ".jpg";
+          else if (contentType === "image/png") extension = ".png";
+          else if (contentType === "image/gif") extension = ".gif";
+          else if (contentType === "image/webp") extension = ".webp";
+          else if (contentType === "image/svg+xml") extension = ".svg";
+          // else keep category default (e.g., .png)
+        } else if (category === CrateCategory.CODE && contentType) {
+          if (contentType.includes("javascript")) extension = ".js";
+          else if (contentType.includes("typescript")) extension = ".ts";
+          else if (contentType.includes("python")) extension = ".py";
+          else if (contentType.includes("html")) extension = ".html";
+          else if (contentType.includes("css")) extension = ".css";
+          else if (contentType.includes("xml")) extension = ".xml";
+          // else keep category default (e.g., .txt)
+        } else if (category === CrateCategory.DATA && contentType === "text/csv") {
+          extension = ".csv";
+        }
+      } else if (contentType) { // Infer from contentType if category is missing
+        if (contentType === "application/json") extension = ".json";
+        else if (contentType === "image/jpeg" || contentType === "image/jpg") extension = ".jpg";
+        else if (contentType === "image/png") extension = ".png";
+        else if (contentType === "image/gif") extension = ".gif";
+        else if (contentType === "image/webp") extension = ".webp";
+        else if (contentType === "image/svg+xml") extension = ".svg";
+        else if (contentType === "text/markdown") extension = ".md";
+        else if (contentType === "text/csv") extension = ".csv";
+        else if (contentType.includes("javascript")) extension = ".js";
+        else if (contentType.includes("typescript")) extension = ".ts";
+        else if (contentType.includes("python")) extension = ".py";
+        else if (contentType.startsWith("text/")) extension = ".txt";
+        else if (contentType.startsWith("application/octet-stream") || contentType.startsWith("binary/")) extension = ".bin";
+        else extension = ".dat";
+      } else {
+        extension = ".dat"; // Ultimate fallback
+      }
+      effectiveFileName = `${baseName}${extension}`;
+    }
+
     // Create the partial crate data
     const partialCrate: Partial<Crate> = {
-      title: title || fileName,
+      title: title || effectiveFileName, // Use original title, or fallback to effectiveFileName
       description,
       ttlDays,
       ownerId: req?.user?.userId || "anonymous",
@@ -418,7 +478,7 @@ function getServer(req?: AuthenticatedRequest) {
     // Return presigned URL for binary/data categories or binary content types without data
     if (isBinaryOrDataCategory || (isBinaryContentType && !data)) {
       const { url, fileId, gcsPath } = await generateUploadUrl(
-        fileName,
+        effectiveFileName, // Use effectiveFileName
         contentType,
         ttlDays,
       );
@@ -463,7 +523,7 @@ function getServer(req?: AuthenticatedRequest) {
 
       const crate = await uploadCrate(
         buffer,
-        fileName,
+        effectiveFileName, // Use effectiveFileName
         contentType,
         partialCrate
       );

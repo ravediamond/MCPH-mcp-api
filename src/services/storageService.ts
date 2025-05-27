@@ -300,7 +300,7 @@ export async function uploadCrate(
           }),
         },
       },
-      resumable: false,
+      resumable: true, // Changed to true for more robust uploads
     });
 
     // Create the searchField for hybrid search
