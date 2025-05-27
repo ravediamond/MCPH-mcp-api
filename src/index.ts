@@ -459,8 +459,14 @@ function getServer(req?: AuthenticatedRequest) {
     const isBinaryOrDataCategory = category === CrateCategory.BINARY || category === CrateCategory.DATA;
     const isBinaryContentType = contentType.startsWith("application/") || contentType === "binary/octet-stream";
 
-    // Return presigned URL for binary/data categories or binary content types without data
-    if ((isBinaryOrDataCategory || isBinaryContentType) && !data) {
+    const isBigDataType =
+      category === CrateCategory.DATA ||
+      category === CrateCategory.BINARY ||
+      contentType === "text/csv" ||
+      contentType.startsWith("application/octet-stream") ||
+      contentType.startsWith("binary/");
+
+    if (isBigDataType && !data) {
       const { url, fileId, gcsPath } = await generateUploadUrl(
         effectiveFileName,
         contentType,
@@ -477,58 +483,54 @@ function getServer(req?: AuthenticatedRequest) {
         crateId: fileId,
         gcsPath,
       };
-    } else {
-      // For other categories or when data is provided, upload directly
-      if (!data) {
-        return {
-          content: [{ type: "text", text: "Missing data for direct upload" }],
-          isError: true,
-        };
-      }
+    }
 
-      const buffer =
-        contentType === "application/json"
-          ? Buffer.from(data, "utf8")
-          : Buffer.from(data, "base64");
-      // Generate embedding from metadata and content
-      let embedding = undefined;
-      try {
-        const metaString = metadata
-          ? Object.entries(metadata)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(" ")
-          : "";
-        const tagsString = tags ? tags.join(" ") : "";
-        const concatText = [title, description, tagsString, metaString]
-          .filter(Boolean)
-          .join(" ");
-        if (concatText.trim().length > 0) {
-          embedding = await getEmbedding(concatText);
-        }
-      } catch (e) {
-        console.error("Failed to generate embedding:", e);
-      }
-
-      const crate = await uploadCrate(
-        buffer,
-        effectiveFileName,
-        contentType,
-        partialCrate
-      );
-
-      // Store embedding in Firestore if present
-      if (embedding && crate.id) {
-        await db
-          .collection(CRATES_COLLECTION)
-          .doc(crate.id)
-          .update({ embedding });
-      }
-
+    if (!data) {
       return {
-        content: [{ type: "text", text: `Crate uploaded successfully. Crate ID: ${crate.id}` }],
-        crate,
+        content: [{ type: "text", text: "Missing data for direct upload" }],
+        isError: true,
       };
     }
+
+    const buffer = Buffer.from(data, "utf8");
+
+    let embedding = undefined;
+    try {
+      const metaString = metadata
+        ? Object.entries(metadata)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(" ")
+        : "";
+      const tagsString = tags ? tags.join(" ") : "";
+      const concatText = [title, description, tagsString, metaString]
+        .filter(Boolean)
+        .join(" ");
+      if (concatText.trim().length > 0) {
+        embedding = await getEmbedding(concatText);
+      }
+    } catch (e) {
+      console.error("Failed to generate embedding:", e);
+    }
+
+    const crate = await uploadCrate(
+      buffer,
+      effectiveFileName,
+      contentType,
+      partialCrate
+    );
+
+    // Store embedding in Firestore if present
+    if (embedding && crate.id) {
+      await db
+        .collection(CRATES_COLLECTION)
+        .doc(crate.id)
+        .update({ embedding });
+    }
+
+    return {
+      content: [{ type: "text", text: `Crate uploaded successfully. Crate ID: ${crate.id}` }],
+      crate,
+    };
   });
 
   // crates/share
