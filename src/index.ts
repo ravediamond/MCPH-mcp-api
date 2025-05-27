@@ -560,7 +560,6 @@ function getServer(req?: AuthenticatedRequest) {
     // Return the shareable link and status
     const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL || "https://mcph.io"}/crate/${id}`;
     return {
-      structuredContent: {},
       content: [
         {
           type: "text",
