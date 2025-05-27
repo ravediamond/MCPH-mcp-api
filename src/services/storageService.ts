@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
-import { bucket, uploadsFolder } from "./gcpStorageClient.js";
+import { bucket, cratesFolder } from "./gcpStorageClient.js";
 import {
-  saveFileMetadata,
-  getFileMetadata,
-  deleteFileMetadata,
-  incrementDownloadCount,
+  saveCrateMetadata,
+  getCrateMetadata,
+  deleteCrateMetadata,
+  incrementCrateDownloadCount,
   logEvent,
 } from "./firebaseService.js";
 import { DATA_TTL } from "../config/constants.js";
@@ -13,6 +13,7 @@ import {
   compressBuffer,
   decompressBuffer,
 } from "../lib/compressionUtils.js";
+import { Crate, CrateCategory, CrateSharing } from "../types/crate.js";
 
 // File metadata type definition
 export interface FileMetadata {
@@ -49,7 +50,7 @@ export async function generateUploadUrl(
     const fileId = uuidv4();
 
     // Generate GCS path
-    const gcsPath = `${uploadsFolder}${fileId}/${encodeURIComponent(fileName)}`;
+    const gcsPath = `${cratesFolder}${fileId}/${encodeURIComponent(fileName)}`;
 
     // Create a GCS file object
     const file = bucket.file(gcsPath);
@@ -80,13 +81,13 @@ export async function generateUploadUrl(
       contentType,
       size: 0, // Will be updated when file is uploaded
       gcsPath,
-      uploadedAt, // Store as number (timestamp)
+      uploadedAt: uploadedAt, // Store as number (timestamp)
       expiresAt: expiresAtTimestamp, // Store as number (timestamp)
       downloadCount: 0,
     };
 
     // Store metadata in Firestore
-    await saveFileMetadata({
+    await saveCrateMetadata({
       ...fileData,
       uploadedAt: new Date(uploadedAt),
       expiresAt: expiresAtTimestamp ? new Date(expiresAtTimestamp) : undefined,
@@ -133,7 +134,7 @@ export async function uploadFile(
     const fileId = uuidv4();
 
     // Generate GCS path
-    const gcsPath = `${uploadsFolder}${fileId}/${encodeURIComponent(fileName)}`;
+    const gcsPath = `${cratesFolder}${fileId}/${encodeURIComponent(fileName)}`;
 
     // Create a GCS file object
     const file = bucket.file(gcsPath);
@@ -212,7 +213,7 @@ export async function uploadFile(
       size: bufferToSave.length,
       fileType: fileType || "file", // Use provided fileType or default to 'file'
       gcsPath,
-      uploadedAt, // Store as number (timestamp)
+      uploadedAt: uploadedAt, // Store as number (timestamp)
       expiresAt: expiresAtTimestamp, // Store as number (timestamp)
       downloadCount: 0,
       ...(compressionMetadata && {
@@ -226,7 +227,7 @@ export async function uploadFile(
     };
 
     // Store metadata in Firestore
-    await saveFileMetadata({
+    await saveCrateMetadata({
       ...fileData,
       uploadedAt: new Date(uploadedAt),
       expiresAt: expiresAtTimestamp ? new Date(expiresAtTimestamp) : undefined,
@@ -240,6 +241,143 @@ export async function uploadFile(
 }
 
 /**
+ * Upload a file as a Crate with the unified metadata schema
+ */
+export async function uploadCrate(
+  fileBuffer: Buffer,
+  fileName: string,
+  contentType: string,
+  crateData: Partial<Crate>,
+): Promise<Crate> {
+  try {
+    // Generate a unique ID for the crate
+    const crateId = crateData.id || uuidv4();
+
+    // Generate GCS path for the crate
+    const gcsPath = `${cratesFolder}${crateId}/${encodeURIComponent(fileName)}`;
+
+    // Create a GCS file object
+    const file = bucket.file(gcsPath);
+
+    let bufferToSave = fileBuffer;
+
+    // Special handling for JSON content
+    if (contentType === "application/json") {
+      try {
+        // The content should already be valid JSON string
+        const jsonString = bufferToSave.toString("utf8");
+        // Validate JSON by parsing and re-stringifying with proper formatting
+        const jsonContent = JSON.parse(jsonString);
+        bufferToSave = Buffer.from(
+          JSON.stringify(jsonContent, null, 2),
+          "utf8",
+        );
+      } catch (err) {
+        console.error("Error validating JSON content:", err);
+        throw new Error("Invalid JSON content");
+      }
+    }
+
+    let compressionMetadata = null;
+    // Check if the file should be compressed based on content type and filename
+    const shouldUseCompression = shouldCompress(contentType, fileName);
+
+    // Apply compression if appropriate
+    if (shouldUseCompression) {
+      console.log(`Compressing crate: ${fileName} (${contentType})`);
+      try {
+        const result = await compressBuffer(bufferToSave);
+        bufferToSave = result.compressedBuffer;
+        compressionMetadata = result.compressionMetadata;
+        console.log(
+          `Compression successful: ${fileName} - Original: ${compressionMetadata.originalSize} bytes, Compressed: ${compressionMetadata.compressedSize} bytes, Ratio: ${compressionMetadata.compressionRatio.toFixed(2)}%`,
+        );
+      } catch (compressionError) {
+        console.error(
+          "Error during compression, using original buffer:",
+          compressionError,
+        );
+      }
+    }
+
+    // Upload the file with metadata
+    await file.save(bufferToSave, {
+      metadata: {
+        contentType,
+        metadata: {
+          crateId,
+          originalName: fileName,
+          title: crateData.title || fileName,
+          ...(crateData.description && { description: crateData.description }),
+          ...(crateData.category && { category: crateData.category }),
+          ...(compressionMetadata && {
+            compressed: "true",
+            compressionMethod: compressionMetadata.compressionMethod,
+            originalSize: compressionMetadata.originalSize.toString(),
+            compressionRatio: compressionMetadata.compressionRatio.toFixed(2),
+          }),
+        },
+      },
+      resumable: true,
+    });
+
+    // Create the searchField for hybrid search
+    const metaString = crateData.metadata
+      ? Object.entries(crateData.metadata)
+          .map(([k, v]) => `${k} ${v}`)
+          .join(" ")
+      : "";
+
+    const tagsString = crateData.tags ? crateData.tags.join(" ") : "";
+    const searchField = [
+      crateData.title || fileName,
+      crateData.description || "",
+      tagsString,
+      metaString,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    // Create default sharing config if not provided
+    const sharing: CrateSharing = crateData.shared || {
+      public: false,
+    };
+
+    // Create the complete crate metadata
+    const completeCrate: Crate = {
+      id: crateId,
+      title: crateData.title || fileName,
+      description: crateData.description,
+      ownerId: crateData.ownerId || "anonymous",
+      createdAt: new Date(),
+      ttlDays: crateData.ttlDays || DATA_TTL.DEFAULT_DAYS,
+      mimeType: contentType,
+      category:
+        crateData.category || getDefaultCategoryForFile(fileName, contentType),
+      gcsPath: gcsPath,
+      shared: sharing,
+      tags: crateData.tags,
+      searchField,
+      size: bufferToSave.length,
+      downloadCount: 0,
+      metadata: crateData.metadata,
+    };
+
+    // Store metadata in Firestore
+    await saveCrateMetadata(completeCrate);
+
+    // Log the upload event
+    await logEvent("crate_upload", crateId);
+
+    return completeCrate;
+  } catch (error) {
+    console.error("Error uploading crate to GCS:", error);
+    throw new Error("Failed to upload crate");
+  }
+}
+
+/**
  * Get a signed download URL for a file
  */
 export async function getSignedDownloadUrl(
@@ -249,12 +387,12 @@ export async function getSignedDownloadUrl(
 ): Promise<string> {
   try {
     // Get file metadata from Firestore
-    const metadata = await getFileMetadata(fileId);
+    const metadata = await getCrateMetadata(fileId);
     if (!metadata) {
       throw new Error("File not found");
     }
 
-    const actualFileName = fileName || metadata.fileName;
+    const actualFileName = fileName || metadata.title;
     const gcsPath = metadata.gcsPath;
 
     // Get the file
@@ -276,7 +414,7 @@ export async function getSignedDownloadUrl(
     });
 
     // Increment download count in Firestore
-    await incrementDownloadCount(fileId);
+    await incrementCrateDownloadCount(fileId);
 
     // Log the download event
     await logEvent("file_download", fileId);
@@ -294,7 +432,7 @@ export async function getSignedDownloadUrl(
 export async function fileExists(fileId: string): Promise<boolean> {
   try {
     // Get file metadata from Firestore
-    const metadata = await getFileMetadata(fileId);
+    const metadata = await getCrateMetadata(fileId);
     if (!metadata) {
       return false;
     }
@@ -317,7 +455,7 @@ export async function fileExists(fileId: string): Promise<boolean> {
 export async function deleteFile(fileId: string): Promise<boolean> {
   try {
     // Get file metadata from Firestore
-    const metadata = await getFileMetadata(fileId);
+    const metadata = await getCrateMetadata(fileId);
     if (!metadata) {
       return false;
     }
@@ -329,7 +467,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
     const [exists] = await file.exists();
     if (!exists) {
       // Metadata exists but file doesn't, clean up metadata
-      await deleteFileMetadata(fileId);
+      await deleteCrateMetadata(fileId);
       return true;
     }
 
@@ -337,7 +475,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
     await file.delete();
 
     // Delete metadata
-    await deleteFileMetadata(fileId);
+    await deleteCrateMetadata(fileId);
 
     // Log the deletion event
     await logEvent("file_delete", fileId);
@@ -358,7 +496,9 @@ export async function getFileContent(fileId: string): Promise<{
 }> {
   try {
     // Get file metadata from Firestore
-    const metadata = (await getFileMetadata(fileId)) as unknown as FileMetadata;
+    const metadata = (await getCrateMetadata(
+      fileId,
+    )) as unknown as FileMetadata;
     if (!metadata) {
       throw new Error("File not found");
     }
@@ -387,7 +527,7 @@ export async function getFileContent(fileId: string): Promise<{
         );
 
         // Increment download count
-        await incrementDownloadCount(fileId);
+        await incrementCrateDownloadCount(fileId);
 
         return { buffer: decompressedContent, metadata };
       } catch (decompressionError) {
@@ -398,7 +538,7 @@ export async function getFileContent(fileId: string): Promise<{
     }
 
     // Increment download count
-    await incrementDownloadCount(fileId);
+    await incrementCrateDownloadCount(fileId);
 
     return { buffer: content, metadata };
   } catch (error) {
@@ -416,7 +556,9 @@ export async function getFileStream(fileId: string): Promise<{
 }> {
   try {
     // Get file metadata from Firestore
-    const metadata = (await getFileMetadata(fileId)) as unknown as FileMetadata;
+    const metadata = (await getCrateMetadata(
+      fileId,
+    )) as unknown as FileMetadata;
     if (!metadata) {
       throw new Error("File not found");
     }
@@ -447,7 +589,7 @@ export async function getFileStream(fileId: string): Promise<{
     const stream = file.createReadStream();
 
     // Increment download count
-    await incrementDownloadCount(fileId);
+    await incrementCrateDownloadCount(fileId);
 
     return { stream, metadata };
   } catch (error) {
@@ -455,3 +597,144 @@ export async function getFileStream(fileId: string): Promise<{
     throw new Error("Failed to stream file");
   }
 }
+
+/**
+ * Get a crate's content as a buffer, with automatic decompression if needed
+ */
+export async function getCrateContent(crateId: string): Promise<{
+  buffer: Buffer;
+  crate: Crate;
+}> {
+  try {
+    // Get crate metadata from Firestore
+    const crate = await getCrateMetadata(crateId);
+    if (!crate) {
+      throw new Error("Crate not found");
+    }
+
+    // Get the file
+    const file = bucket.file(crate.gcsPath);
+
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error("Crate not found in storage");
+    }
+
+    // Download the file content
+    const [content] = await file.download();
+
+    // Check if file is compressed and needs decompression
+    const fileMetadata = await file.getMetadata();
+    const compressed = fileMetadata[0]?.metadata?.compressed === "true";
+
+    let finalContent = content;
+    if (compressed) {
+      try {
+        console.log(`Decompressing crate: ${crate.id}`);
+        finalContent = await decompressBuffer(content);
+        console.log(`Decompression successful: ${crate.id}`);
+      } catch (decompressionError) {
+        console.error("Error during decompression:", decompressionError);
+        // Fall back to returning the compressed content
+        finalContent = content;
+      }
+    }
+
+    // If this is a JSON file, ensure proper encoding
+    if (
+      crate.mimeType === "application/json" ||
+      crate.category === CrateCategory.JSON
+    ) {
+      try {
+        // Parse and re-stringify to ensure proper formatting
+        const jsonContent = JSON.parse(finalContent.toString("utf8"));
+        finalContent = Buffer.from(
+          JSON.stringify(jsonContent, null, 2),
+          "utf8",
+        );
+      } catch (err) {
+        console.error("Error processing JSON content:", err);
+        // If JSON parsing fails, return the content as-is
+      }
+    }
+
+    // Increment download count
+    await incrementCrateDownloadCount(crateId);
+
+    return { buffer: finalContent, crate };
+  } catch (error) {
+    console.error("Error getting crate content:", error);
+    throw new Error("Failed to get crate content");
+  }
+}
+
+/**
+ * Get the default category for a file based on its extension and MIME type
+ */
+function getDefaultCategoryForFile(
+  fileName: string,
+  mimeType: string,
+): CrateCategory {
+  // First check MIME type
+  if (mimeType && MIME_TYPE_TO_CATEGORY[mimeType]) {
+    return MIME_TYPE_TO_CATEGORY[mimeType];
+  }
+
+  // Then check file extension
+  const extension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+  if (extension && EXTENSION_TO_CATEGORY[extension]) {
+    return EXTENSION_TO_CATEGORY[extension];
+  }
+
+  // Default to binary if we can't determine the category
+  return CrateCategory.BINARY;
+}
+
+// Define MIME type to category mappings
+const MIME_TYPE_TO_CATEGORY: Record<string, CrateCategory> = {
+  "image/png": CrateCategory.IMAGE,
+  "image/jpeg": CrateCategory.IMAGE,
+  "image/gif": CrateCategory.IMAGE,
+  "image/webp": CrateCategory.IMAGE,
+  "image/svg+xml": CrateCategory.IMAGE,
+  "text/markdown": CrateCategory.MARKDOWN,
+  "text/x-markdown": CrateCategory.MARKDOWN,
+  "application/json": CrateCategory.JSON,
+  "text/csv": CrateCategory.DATA,
+  "text/plain": CrateCategory.CODE,
+  "application/javascript": CrateCategory.CODE,
+  "text/javascript": CrateCategory.CODE,
+  "text/html": CrateCategory.CODE,
+  "text/css": CrateCategory.CODE,
+  // Add more specific code types if needed, e.g.:
+  // "application/x-python": CrateCategory.CODE,
+  // "application/xml": CrateCategory.CODE,
+};
+
+// Define file extension to category mappings
+const EXTENSION_TO_CATEGORY: Record<string, CrateCategory> = {
+  ".png": CrateCategory.IMAGE,
+  ".jpg": CrateCategory.IMAGE,
+  ".jpeg": CrateCategory.IMAGE,
+  ".gif": CrateCategory.IMAGE,
+  ".webp": CrateCategory.IMAGE,
+  ".svg": CrateCategory.IMAGE,
+  ".md": CrateCategory.MARKDOWN,
+  ".markdown": CrateCategory.MARKDOWN,
+  ".json": CrateCategory.JSON,
+  ".csv": CrateCategory.DATA,
+  ".js": CrateCategory.CODE,
+  ".ts": CrateCategory.CODE,
+  ".html": CrateCategory.CODE,
+  ".css": CrateCategory.CODE,
+  ".py": CrateCategory.CODE,
+  ".java": CrateCategory.CODE,
+  ".xml": CrateCategory.CODE,
+  ".txt": CrateCategory.CODE,
+  ".log": CrateCategory.CODE,
+  ".todolist": CrateCategory.TODOLIST,
+  ".mmd": CrateCategory.DIAGRAM,
+  ".diagram": CrateCategory.DIAGRAM,
+  // Add more extensions as needed
+};
