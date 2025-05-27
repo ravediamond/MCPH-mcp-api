@@ -414,7 +414,6 @@ function getServer(req?: AuthenticatedRequest) {
         ttlDays,
       );
       return {
-        structuredContent: {},
         content: [
           {
             type: "text",
@@ -429,7 +428,6 @@ function getServer(req?: AuthenticatedRequest) {
       // Text: upload directly
       if (!data) {
         return {
-          structuredContent: {},
           content: [{ type: "text", text: "Missing data for text upload" }],
           isError: true,
         };
@@ -469,7 +467,6 @@ function getServer(req?: AuthenticatedRequest) {
           .update({ embedding });
       }
       return {
-        structuredContent: {},
         content: [{ type: "text", text: "Crate uploaded successfully." }],
         crate,
       };
