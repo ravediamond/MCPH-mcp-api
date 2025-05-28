@@ -20,6 +20,7 @@ import {
   getCrateContent,
   generateUploadUrl,
   uploadCrate,
+  deleteCrate,
 } from "./services/storageService.js";
 import { getEmbedding } from "./lib/vertexAiEmbedding.js";
 import util from "util";
@@ -98,6 +99,9 @@ const ShareCrateParams = z.object({
   passwordProtected: z.boolean().optional(),
 });
 const UnshareCrateParams = z.object({
+  id: z.string(),
+});
+const DeleteCrateParams = z.object({
   id: z.string(),
 });
 const SearchParams = z.object({
@@ -694,6 +698,49 @@ function getServer(req?: AuthenticatedRequest) {
     },
   );
 
+  // crates/delete
+  server.tool("crates_delete", DeleteCrateParams.shape, async (args, extra) => {
+    const { id } = args;
+
+    try {
+      // Check if the crate exists first
+      const crate = await getCrateMetadata(id);
+      if (!crate) {
+        throw new Error("Crate not found");
+      }
+
+      // Check if the user has permission to delete this crate
+      if (req?.user?.userId && crate.ownerId !== req.user.userId) {
+        throw new Error("You don't have permission to delete this crate");
+      }
+
+      // Use the deleteCrate function from storageService
+      const result = await deleteCrate(id, req?.user?.userId);
+
+      if (!result) {
+        throw new Error("Failed to delete crate");
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Crate ${id} has been successfully deleted.`,
+          },
+        ],
+        id,
+      };
+    } catch (error) {
+      console.error("Error deleting crate:", error);
+      // Type guard to handle 'unknown' error type
+      if (error instanceof Error) {
+        throw new Error(error.message);
+      } else {
+        throw new Error("Failed to delete crate");
+      }
+    }
+  });
+
   return server;
 }
 
@@ -771,5 +818,5 @@ app.delete("/", (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`MCPH listening on http://localhost:${PORT}/`);
+  console.log(`MCPH ready to go!`);
 });

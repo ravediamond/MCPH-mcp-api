@@ -488,6 +488,57 @@ export async function deleteFile(fileId: string): Promise<boolean> {
 }
 
 /**
+ * Delete a crate from storage and Firestore
+ */
+export async function deleteCrate(
+  crateId: string,
+  ownerId?: string,
+): Promise<boolean> {
+  try {
+    // Get crate metadata from Firestore
+    const crate = await getCrateMetadata(crateId);
+    if (!crate) {
+      return false;
+    }
+
+    // Check ownership if ownerId is provided
+    if (ownerId && crate.ownerId !== ownerId) {
+      throw new Error("You don't have permission to delete this crate");
+    }
+
+    // Get the file
+    const file = bucket.file(crate.gcsPath);
+
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      // Metadata exists but file doesn't, clean up metadata
+      await deleteCrateMetadata(crateId);
+      return true;
+    }
+
+    // Delete the file
+    await file.delete();
+
+    // Delete metadata
+    await deleteCrateMetadata(crateId);
+
+    // Log the deletion event
+    await logEvent("crate_delete", crateId);
+
+    return true;
+  } catch (error) {
+    console.error("Error deleting crate:", error);
+    // Type guard to handle unknown error type
+    if (error instanceof Error) {
+      throw new Error(`Failed to delete crate: ${error.message}`);
+    } else {
+      throw new Error("Failed to delete crate: Unknown error");
+    }
+  }
+}
+
+/**
  * Get a file's content as a buffer, with automatic decompression if needed
  */
 export async function getFileContent(fileId: string): Promise<{
