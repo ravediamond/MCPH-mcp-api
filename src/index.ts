@@ -79,7 +79,7 @@ const GetCrateParams = z.object({
   id: z.string(),
   expiresInSeconds: z.number().int().min(1).max(86400).optional(),
 });
-const GetCrateByPresignedUrlParams = z.object({
+const GetCrateDownloadLinkParams = z.object({
   id: z.string(),
   expiresInSeconds: z.number().int().min(1).max(86400).optional(),
 });
@@ -189,9 +189,9 @@ function getServer(req?: AuthenticatedRequest) {
         // Calculate expiration date if ttlDays is present
         expiresAt: data.ttlDays
           ? new Date(
-            new Date(data.createdAt.toDate()).getTime() +
-            data.ttlDays * 24 * 60 * 60 * 1000,
-          ).toISOString()
+              new Date(data.createdAt.toDate()).getTime() +
+                data.ttlDays * 24 * 60 * 60 * 1000,
+            ).toISOString()
           : null,
       };
     });
@@ -233,13 +233,16 @@ function getServer(req?: AuthenticatedRequest) {
           ? Math.max(1, Math.min(86400, expiresInSeconds))
           : 300;
 
-      // Special handling for BINARY and DATA categories - direct user to use crates_get_by_presigned_url instead
-      if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.DATA) {
+      // Special handling for BINARY and DATA categories - direct user to use crates_get_download_link instead
+      if (
+        meta.category === CrateCategory.BINARY ||
+        meta.category === CrateCategory.DATA
+      ) {
         return {
           content: [
             {
               type: "text",
-              text: `This crate contains ${meta.category.toLowerCase()} content. Please use the 'crates_get_by_presigned_url' tool to get a download link for this content.\n\nExample: { "id": "${meta.id}" }`,
+              text: `This crate contains ${meta.category.toLowerCase()} content. Please use the 'crates_get_download_link' tool to get a download link for this content.\n\nExample: { "id": "${meta.id}" }`,
             },
           ],
         };
@@ -332,10 +335,10 @@ function getServer(req?: AuthenticatedRequest) {
     },
   );
 
-  // crates/get_by_presigned_url
+  // crates/get_download_link
   server.tool(
-    "crates_get_by_presigned_url",
-    GetCrateByPresignedUrlParams.shape,
+    "crates_get_download_link",
+    GetCrateDownloadLinkParams.shape,
     async ({ id, expiresInSeconds }, extra) => {
       const meta = await getCrateMetadata(id);
       if (!meta) {
@@ -419,9 +422,9 @@ function getServer(req?: AuthenticatedRequest) {
         expiresAt:
           doc.ttlDays && doc.createdAt
             ? new Date(
-              new Date(doc.createdAt.toDate()).getTime() +
-              doc.ttlDays * 24 * 60 * 60 * 1000,
-            ).toISOString()
+                new Date(doc.createdAt.toDate()).getTime() +
+                  doc.ttlDays * 24 * 60 * 60 * 1000,
+              ).toISOString()
             : null,
       };
     });
@@ -434,16 +437,16 @@ function getServer(req?: AuthenticatedRequest) {
           text:
             crates.length > 0
               ? crates
-                .map(
-                  (c) =>
-                    `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
-                    `Description: ${c.description || "No description"}\n` +
-                    `Category: ${c.category || "N/A"}\n` + // Add category
-                    `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
-                    `Tags: ${c.tags?.join(", ") || "None"}\n` +
-                    `Expires: ${c.expiresAt || "Never"}\n`,
-                )
-                .join("\n---\n")
+                  .map(
+                    (c) =>
+                      `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
+                      `Description: ${c.description || "No description"}\n` +
+                      `Category: ${c.category || "N/A"}\n` + // Add category
+                      `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
+                      `Tags: ${c.tags?.join(", ") || "None"}\n` +
+                      `Expires: ${c.expiresAt || "Never"}\n`,
+                  )
+                  .join("\n---\n")
               : `No crates found matching "${query}"`,
         },
       ],
@@ -610,8 +613,8 @@ function getServer(req?: AuthenticatedRequest) {
     try {
       const metaString = metadata
         ? Object.entries(metadata)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(" ")
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" ")
         : "";
       const tagsString = tags ? tags.join(" ") : "";
       const concatText = [title, description, tagsString, metaString]
@@ -690,6 +693,7 @@ function getServer(req?: AuthenticatedRequest) {
       isPublic,
       passwordProtected,
       shareUrl,
+      crateLink: `mcph.io/crate/${id}`,
     };
   });
 
