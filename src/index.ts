@@ -79,7 +79,7 @@ const GetCrateParams = z.object({
   id: z.string(),
   expiresInSeconds: z.number().int().min(1).max(86400).optional(),
 });
-const GetCrateByPresignedUrlParams = z.object({
+const GetCrateDownloadLinkParams = z.object({
   id: z.string(),
   expiresInSeconds: z.number().int().min(1).max(86400).optional(),
 });
@@ -162,7 +162,13 @@ function getServer(req?: AuthenticatedRequest) {
   };
 
   // crates/list
-  server.tool("crates_list", {}, async () => {
+  server.tool(
+    "crates_list", 
+    {},
+    {
+      description: "Lists all available crates in the system, including their metadata, ID, title, description, category, content type, tags, and expiration date."
+    }, 
+    async () => {
     const snapshot = await db
       .collection(CRATES_COLLECTION)
       .where("createdAt", ">", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Filter to last 30 days
@@ -189,9 +195,9 @@ function getServer(req?: AuthenticatedRequest) {
         // Calculate expiration date if ttlDays is present
         expiresAt: data.ttlDays
           ? new Date(
-            new Date(data.createdAt.toDate()).getTime() +
-            data.ttlDays * 24 * 60 * 60 * 1000,
-          ).toISOString()
+              new Date(data.createdAt.toDate()).getTime() +
+                data.ttlDays * 24 * 60 * 60 * 1000,
+            ).toISOString()
           : null,
       };
     });
@@ -221,6 +227,9 @@ function getServer(req?: AuthenticatedRequest) {
   server.tool(
     "crates_get",
     GetCrateParams.shape,
+    {
+      description: "Retrieves the content of a specific crate by its ID. Returns text content for code, markdown, and JSON, image data for images, and directs to download links for binary files."
+    },
     async ({ id, expiresInSeconds }, extra) => {
       const meta = await getCrateMetadata(id);
       if (!meta) {
@@ -233,13 +242,16 @@ function getServer(req?: AuthenticatedRequest) {
           ? Math.max(1, Math.min(86400, expiresInSeconds))
           : 300;
 
-      // Special handling for BINARY and DATA categories - direct user to use crates_get_by_presigned_url instead
-      if (meta.category === CrateCategory.BINARY || meta.category === CrateCategory.DATA) {
+      // Special handling for BINARY and DATA categories - direct user to use crates_get_download_link instead
+      if (
+        meta.category === CrateCategory.BINARY ||
+        meta.category === CrateCategory.DATA
+      ) {
         return {
           content: [
             {
               type: "text",
-              text: `This crate contains ${meta.category.toLowerCase()} content. Please use the 'crates_get_by_presigned_url' tool to get a download link for this content.\n\nExample: { "id": "${meta.id}" }`,
+              text: `This crate contains ${meta.category.toLowerCase()} content. Please use the 'crates_get_download_link' tool to get a download link for this content.\n\nExample: { "id": "${meta.id}" }`,
             },
           ],
         };
@@ -332,10 +344,13 @@ function getServer(req?: AuthenticatedRequest) {
     },
   );
 
-  // crates/get_by_presigned_url
+  // crates/get_download_link
   server.tool(
-    "crates_get_by_presigned_url",
-    GetCrateByPresignedUrlParams.shape,
+    "crates_get_download_link",
+    GetCrateDownloadLinkParams.shape,
+    {
+      description: "Generates a pre-signed download URL for a crate, particularly useful for binary or large files. The URL expires after the specified time."
+    },
     async ({ id, expiresInSeconds }, extra) => {
       const meta = await getCrateMetadata(id);
       if (!meta) {
@@ -368,7 +383,13 @@ function getServer(req?: AuthenticatedRequest) {
   );
 
   // crates/search
-  server.tool("crates_search", SearchParams.shape, async ({ query }) => {
+  server.tool(
+    "crates_search", 
+    SearchParams.shape,
+    {
+      description: "Searches for crates using both vector similarity and text matching. Returns crates that match the query in title, description, tags, or metadata."
+    }, 
+    async ({ query }) => {
     const embedding = await getEmbedding(query);
     let topK = 5;
     const cratesRef = db.collection(CRATES_COLLECTION);
@@ -419,9 +440,9 @@ function getServer(req?: AuthenticatedRequest) {
         expiresAt:
           doc.ttlDays && doc.createdAt
             ? new Date(
-              new Date(doc.createdAt.toDate()).getTime() +
-              doc.ttlDays * 24 * 60 * 60 * 1000,
-            ).toISOString()
+                new Date(doc.createdAt.toDate()).getTime() +
+                  doc.ttlDays * 24 * 60 * 60 * 1000,
+              ).toISOString()
             : null,
       };
     });
@@ -434,16 +455,16 @@ function getServer(req?: AuthenticatedRequest) {
           text:
             crates.length > 0
               ? crates
-                .map(
-                  (c) =>
-                    `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
-                    `Description: ${c.description || "No description"}\n` +
-                    `Category: ${c.category || "N/A"}\n` + // Add category
-                    `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
-                    `Tags: ${c.tags?.join(", ") || "None"}\n` +
-                    `Expires: ${c.expiresAt || "Never"}\n`,
-                )
-                .join("\n---\n")
+                  .map(
+                    (c) =>
+                      `ID: ${c.id}\nTitle: ${c.title || "Untitled"}\n` +
+                      `Description: ${c.description || "No description"}\n` +
+                      `Category: ${c.category || "N/A"}\n` + // Add category
+                      `Content Type: ${c.contentType || "N/A"}\n` + // Add contentType
+                      `Tags: ${c.tags?.join(", ") || "None"}\n` +
+                      `Expires: ${c.expiresAt || "Never"}\n`,
+                  )
+                  .join("\n---\n")
               : `No crates found matching "${query}"`,
         },
       ],
@@ -451,7 +472,13 @@ function getServer(req?: AuthenticatedRequest) {
   });
 
   // crates/upload
-  server.tool("crates_upload", UploadCrateParams.shape, async (args, extra) => {
+  server.tool(
+    "crates_upload", 
+    UploadCrateParams.shape,
+    {
+      description: "Uploads a new crate to the system. For small text-based content, performs a direct upload. For large binary files, returns a pre-signed upload URL."
+    }, 
+    async (args, extra) => {
     const {
       fileName, // Original fileName from args
       contentType,
@@ -610,8 +637,8 @@ function getServer(req?: AuthenticatedRequest) {
     try {
       const metaString = metadata
         ? Object.entries(metadata)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(" ")
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" ")
         : "";
       const tagsString = tags ? tags.join(" ") : "";
       const concatText = [title, description, tagsString, metaString]
@@ -651,7 +678,13 @@ function getServer(req?: AuthenticatedRequest) {
   });
 
   // crates/share
-  server.tool("crates_share", ShareCrateParams.shape, async (args, extra) => {
+  server.tool(
+    "crates_share", 
+    ShareCrateParams.shape,
+    {
+      description: "Updates the sharing settings for a crate. Allows making a crate public, sharing with specific users, and setting password protection."
+    }, 
+    async (args, extra) => {
     const { id, public: isPublic, sharedWith, passwordProtected } = args;
     const crateRef = db.collection(CRATES_COLLECTION).doc(id);
 
@@ -690,6 +723,7 @@ function getServer(req?: AuthenticatedRequest) {
       isPublic,
       passwordProtected,
       shareUrl,
+      crateLink: `mcph.io/crate/${id}`,
     };
   });
 
@@ -697,6 +731,9 @@ function getServer(req?: AuthenticatedRequest) {
   server.tool(
     "crates_unshare",
     UnshareCrateParams.shape,
+    {
+      description: "Removes all sharing settings from a crate, making it private. Resets all sharing settings, removing public access and shared users."
+    },
     async (args, extra) => {
       const { id } = args;
       const crateRef = db.collection(CRATES_COLLECTION).doc(id);
@@ -736,7 +773,13 @@ function getServer(req?: AuthenticatedRequest) {
   );
 
   // crates/delete
-  server.tool("crates_delete", DeleteCrateParams.shape, async (args, extra) => {
+  server.tool(
+    "crates_delete", 
+    DeleteCrateParams.shape,
+    {
+      description: "Permanently deletes a crate. Removes both the crate content from storage and its metadata from the database."
+    }, 
+    async (args, extra) => {
     const { id } = args;
 
     try {
